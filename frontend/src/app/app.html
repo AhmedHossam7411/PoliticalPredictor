@@ -1,14 +1,58 @@
 <div class="page">
   <header>
     <h1>PoliticalPredictor</h1>
-    <p class="sub">At-a-distance leadership profiling — LTA traits &amp; VICS operational code</p>
+    <p class="sub">Reads a political leader's speech and estimates their leadership personality —
+      how they think, decide, and deal with others — from the words and ideas they use.</p>
   </header>
+
+  <!-- Plain-language guide -->
+  <section class="help">
+    <button class="help-toggle" (click)="toggleHelp()">
+      {{ showHelp() ? '▾ Hide the guide' : '▸ What do these results mean? (read me first)' }}
+    </button>
+
+    @if (showHelp()) {
+      <div class="help-body">
+        <h3>How it works</h3>
+        <p>Paste a speech (or pick a sample) and analyze it two ways:</p>
+        <ul class="methods">
+          <li><strong>Word scorer</strong> — counts the kinds of words used and compares them
+            with a set of sample leaders. Fast and fully transparent, but it can miss meaning:
+            a leader who <em>sounds</em> aggressive without using aggressive words may score low.</li>
+          <li><strong>AI scorer (Groq)</strong> — an AI reads the whole speech and judges its
+            meaning, the way a human analyst would. Better with tone and nuance, and it gives a
+            reason for every score (0–100, where about 50 is average for a world leader).</li>
+        </ul>
+
+        <h3>How to read the labels</h3>
+        <p><strong>High / Moderate / Low</strong> compares this leader with other leaders — it does
+          <em>not</em> mean good or bad, just stronger or weaker than average on that trait. The word
+          scorer compares against the sample speeches; the AI scorer gives a 0–100 number instead.</p>
+
+        <h3>The seven personality traits</h3>
+        <div class="glossary">
+          @for (t of traits; track t) {
+            <div class="g-item">
+              <div class="g-name">{{ traitNames[t] }} <span class="code">{{ t }}</span></div>
+              <p class="g-what">{{ info[t].what }}</p>
+              <p class="g-hl"><span class="hl-high">Higher:</span> {{ info[t].high }}</p>
+              <p class="g-hl"><span class="hl-low">Lower:</span> {{ info[t].low }}</p>
+            </div>
+          }
+        </div>
+
+        <h3>The "operational code" indices (how they view politics &amp; strategy)</h3>
+        <p class="muted">A second, separate method describing how the leader sees the political
+          world and how they pursue goals. Each line below explains its number.</p>
+      </div>
+    }
+  </section>
 
   <section class="input-card">
     <div class="toolbar">
-      <label>Load a sample speech:</label>
+      <label>Try a sample speech:</label>
       <select (change)="loadSample($any($event.target).value)">
-        <option value="">— choose —</option>
+        <option value="">— choose one —</option>
         @for (s of samples(); track s.key) {
           <option [value]="s.text">{{ s.key }}</option>
         }
@@ -17,73 +61,71 @@
 
     <textarea
       [ngModel]="text()" (ngModelChange)="text.set($event)"
-      rows="12" placeholder="Paste a political leader's speech or interview here…"></textarea>
+      rows="11" placeholder="Paste a political leader's speech or interview here…"></textarea>
 
     <div class="actions">
       <button (click)="runDictionary()" [disabled]="dictLoading() || !text().trim()">
-        {{ dictLoading() ? 'Scoring…' : 'Analyze — Dictionary' }}
+        {{ dictLoading() ? 'Scoring…' : 'Analyze with Word scorer' }}
       </button>
       <button class="secondary" (click)="runLlm()"
         [disabled]="llmLoading() || !text().trim() || meta()?.llm_available === false"
-        [title]="meta()?.llm_available === false ? 'Set GROQ_API_KEY on the server' : ''">
-        {{ llmLoading() ? 'Thinking…' : 'Analyze — LLM (Groq)' }}
+        [title]="meta()?.llm_available === false ? 'The AI scorer is off (server has no GROQ_API_KEY)' : ''">
+        {{ llmLoading() ? 'Thinking…' : 'Analyze with AI scorer' }}
       </button>
     </div>
     @if (error()) { <p class="error">{{ error() }}</p> }
   </section>
 
   <div class="results">
-    <!-- Dictionary panel -->
+    <!-- Word scorer -->
     @if (dict(); as d) {
       <section class="card">
-        <h2>Dictionary scorer <span class="tag">spaCy lemma</span></h2>
-        <p class="muted">{{ d.lta.tokens }} tokens · LTA bands relative to the norming corpus</p>
-        <table class="traits">
-          <tbody>
-            @for (t of traits; track t) {
-              <tr>
-                <th>{{ t }}<span class="full">{{ traitNames[t] }}</span></th>
-                <td class="val">{{ dictValue(d.lta.traits[t]) }}</td>
-                <td><span class="band" [class]="bandClass(d.lta.traits[t].band)">{{ d.lta.traits[t].band }}</span></td>
-              </tr>
-            }
-          </tbody>
-        </table>
+        <h2>Word scorer <span class="tag">counts word patterns</span></h2>
+        <p class="muted">Labels compare this speech with the sample leaders.</p>
 
-        <h3>VICS operational code</h3>
-        <table class="vics">
-          <tbody>
-            @for (v of vicsList(); track v.code) {
-              <tr>
-                <th>{{ v.code }}</th>
-                <td class="label">{{ v.label }}</td>
-                <td class="val">{{ v.value.toFixed(2) }}</td>
-              </tr>
-            }
-          </tbody>
-        </table>
+        <h3>Personality traits</h3>
+        @for (t of traits; track t) {
+          <div class="trait">
+            <div class="trait-top">
+              <span class="trait-name">{{ traitNames[t] }} <span class="code">{{ t }}</span></span>
+              <span class="band" [class]="bandClass(d.lta.traits[t].band)">{{ d.lta.traits[t].band }}</span>
+            </div>
+            <p class="what">{{ info[t].what }}</p>
+          </div>
+        }
+
+        <h3>How they view politics &amp; strategy</h3>
+        @for (v of vicsList(); track v.code) {
+          <div class="trait">
+            <div class="trait-top">
+              <span class="trait-name">{{ v.label }} <span class="code">{{ v.code }}</span></span>
+              <span class="num">{{ v.value.toFixed(2) }}</span>
+            </div>
+            <p class="what">{{ vicsInfo[v.code] }}</p>
+          </div>
+        }
       </section>
     }
 
-    <!-- LLM panel -->
+    <!-- AI scorer -->
     @if (llm(); as l) {
       <section class="card">
-        <h2>LLM scorer <span class="tag groq">Groq · {{ l.model }}</span></h2>
-        @if (l.leadership_style) { <p class="style">Style: <strong>{{ l.leadership_style }}</strong></p> }
+        <h2>AI scorer <span class="tag groq">reads the meaning</span></h2>
+        @if (l.leadership_style) { <p class="style">Overall style: <strong>{{ l.leadership_style }}</strong></p> }
         @if (l.summary) { <p class="muted">{{ l.summary }}</p> }
-        <div class="bars">
-          @for (t of traits; track t) {
-            <div class="bar-row">
-              <div class="bar-head">
-                <span class="code">{{ t }}</span>
-                <span class="band" [class]="bandClass(l.traits[t].band)">{{ l.traits[t].band }}</span>
-                <span class="score">{{ l.traits[t].score }}</span>
-              </div>
-              <div class="bar"><div class="fill" [style.width.%]="l.traits[t].score"></div></div>
-              <p class="rationale">{{ l.traits[t].rationale }}</p>
+
+        @for (t of traits; track t) {
+          <div class="bar-row">
+            <div class="bar-head">
+              <span class="trait-name">{{ traitNames[t] }} <span class="code">{{ t }}</span></span>
+              <span class="band" [class]="bandClass(l.traits[t].band)">{{ l.traits[t].band }}</span>
+              <span class="score">{{ l.traits[t].score }}/100</span>
             </div>
-          }
-        </div>
+            <div class="bar"><div class="fill" [style.width.%]="l.traits[t].score"></div></div>
+            <p class="what">{{ info[t].what }}</p>
+            <p class="rationale"><strong>Why this score:</strong> {{ l.traits[t].rationale }}</p>
+          </div>
+        }
       </section>
     }
   </div>
