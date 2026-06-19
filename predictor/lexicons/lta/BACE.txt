@@ -1,0 +1,59 @@
+act
+advance
+achieve
+accomplish
+affect
+assign
+attack
+build
+carry out
+change
+control
+coordinate
+create
+decide
+deliver
+deploy
+design
+direct
+drive
+enforce
+ensure
+establish
+execute
+formulate
+guarantee
+guide
+handle
+implement
+improve
+influence
+initiate
+intervene
+launch
+lead
+maintain
+manage
+mobilize
+move forward
+operate
+organize
+overcome
+plan
+prepare
+press ahead
+protect
+rebuild
+reform
+respond
+restore
+secure
+set
+shape
+solve
+steer
+strengthen
+take action
+take charge
+transform
+win

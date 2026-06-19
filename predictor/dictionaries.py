@@ -13,8 +13,11 @@ from functools import lru_cache
 
 # Repo root = parent of this package directory.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-LTA_DIR = os.path.join(ROOT, "LTA Code", "LTA Code")
+LTA_DIR = os.path.join(ROOT, "LTA Code", "LTA Code")            # legacy RTF lists
 VICS_DIR = os.path.join(ROOT, "VICS Code", "VICS Code")
+# Curated LTA lexicons (from "list of words LTA.pdf") — the current source.
+LTA_LEXICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "lexicons", "lta")
 
 # Lines whose presence means the line is RTF structure, not content.
 _RTF_STRUCTURE_TOKENS = (
@@ -64,28 +67,33 @@ def load_txt_wordlist(path: str) -> set[str]:
     return words
 
 
-# --- TASK focus: no dictionary shipped with the project, so seed one from the
-# examples Hermann gives in the LTA manual (task-oriented vs group-maintenance).
-TASK_WORDS = {
-    "accomplishment", "accomplish", "achieve", "achievement", "plan", "planning",
-    "position", "proposal", "propose", "recommendation", "recommend", "tactic",
-    "strategy", "objective", "goal", "implement", "implementation", "solution",
-    "solve", "result", "performance", "efficiency", "productivity", "build",
-    "construct", "develop", "production", "complete", "execute", "deliver",
-}
-GROUP_MAINTENANCE_WORDS = {
-    "appreciation", "appreciate", "amnesty", "collaboration", "collaborate",
-    "disappoint", "disappointment", "forgive", "forgiveness", "harm", "liberation",
-    "liberate", "suffering", "suffer", "loyalty", "morale", "spirit", "trust",
-    "togetherness", "unity", "compassion", "care", "support", "empathy", "comfort",
-    "reconcile", "reconciliation", "harmony", "wellbeing", "feelings",
+# Logical dictionary name -> lexicon filename under LTA_LEXICON_DIR.
+_LEXICON_FILES = {
+    "BACE": "BACE.txt",
+    "PWR": "PWR.txt",
+    "CC_high": "CC_high.txt",
+    "CC_low": "CC_low.txt",
+    "SC": "SC.txt",
+    "DIS": "DIS.txt",
+    "IGB": "IGB.txt",
+    "TASK": "TASK.txt",
+    "TASK_group": "TASK_group.txt",
 }
 
 
 # Registry: maps a logical dictionary name to its loaded set.
 @lru_cache(maxsize=1)
 def lta_dictionaries() -> dict[str, set[str]]:
-    """Load all LTA trait dictionaries. Cached after first call."""
+    """Load all LTA trait dictionaries from the curated lexicons. Cached."""
+    return {
+        name: load_txt_wordlist(os.path.join(LTA_LEXICON_DIR, fname))
+        for name, fname in _LEXICON_FILES.items()
+    }
+
+
+@lru_cache(maxsize=1)
+def lta_dictionaries_rtf() -> dict[str, set[str]]:
+    """Legacy: load the original macOS RTF trait lists (kept for comparison)."""
     return {
         "BACE": load_rtf_wordlist(os.path.join(LTA_DIR, "B.O.C.E.rtf")),
         "PWR": load_rtf_wordlist(os.path.join(LTA_DIR, "N.F.P Sub1.rtf")),
@@ -94,8 +102,6 @@ def lta_dictionaries() -> dict[str, set[str]]:
         "SC": load_rtf_wordlist(os.path.join(LTA_DIR, "S.C.rtf")),
         "DIS": load_rtf_wordlist(os.path.join(LTA_DIR, "DTOO.rtf")),
         "IGB": load_rtf_wordlist(os.path.join(LTA_DIR, "IGB .rtf")),
-        "TASK": TASK_WORDS,
-        "TASK_group": GROUP_MAINTENANCE_WORDS,
     }
 
 

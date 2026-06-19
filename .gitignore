@@ -2,3 +2,19 @@
 /LTA Code.zip
 /OPA & LTA gamal abdel nasser jana foda.docx
 /VICS Code.zip
+
+# Large recordings
+*.mp4
+
+# macOS archive cruft
+__MACOSX/
+.DS_Store
+**/.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
