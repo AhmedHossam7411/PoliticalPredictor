@@ -1,2 +1,8 @@
+# API
 fastapi>=0.115
 uvicorn[standard]>=0.30
+
+# NLP: lemmatization + POS for LTA matching
+spacy>=3.8
+# English model (installed via direct wheel; `spacy download` may not detect pip)
+https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl

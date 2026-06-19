@@ -10,8 +10,10 @@ methodologies and returns structured, JSON-friendly results:
 
 | File | Role |
 |---|---|
-| `dictionaries.py` | Loads LTA `.rtf` and VICS `.txt` word lists into sets; seeds the missing TASK list |
-| `text_utils.py` | Tokenizing + **phrase-aware** matching (multi-word entries) |
+| `lexicons/lta/*.txt` | Curated LTA word lists (from `list of words LTA.pdf`) — the current dictionaries |
+| `dictionaries.py` | Loads the curated lexicons (and legacy `.rtf` lists for comparison) |
+| `nlp.py` | spaCy lemmatization + POS; lemma/surface matching |
+| `text_utils.py` | Regex tokenizing + phrase-aware surface matching (used by VICS) |
 | `lta.py` | 7-trait scorer (CC/TASK = ratios; others = density /1k tokens) |
 | `vics.py` | All operational-code indices, consolidated from the 12 original scripts |
 | `score.py` | Integrated report + norming (High/Mod/Low vs a corpus) + validation |
@@ -64,29 +66,43 @@ this.http.post('http://127.0.0.1:8000/analyze', { text: speech })
 - **LTA bands are relative.** High/Moderate/Low is assigned vs a norming group
   (Hermann's >1 SD rule), defaulting to the five mock speeches — not absolute
   cutoffs. Swap the corpus via `build_norm(...)` for a different comparison set.
-- **Phrase-aware matching.** The original VICS scripts counted single tokens via
-  `Counter`, silently missing every multi-word list entry (e.g. "on the other
-  hand"). This engine matches phrases, so values can differ slightly — more
-  correctly — from the originals.
+- **LTA matching is lemma-based** (spaCy): "possibilities" matches "possibility".
+- **Phrase-aware** for VICS: the originals counted single tokens via `Counter`,
+  silently missing multi-word entries (e.g. "on the other hand"). Fixed here.
 - **Divide-by-zero guarded** throughout (several originals crash on empty categories).
 
-## Known limitations / TODO
+## Matching config
 
-These come from the *dictionaries*, not the engine, and show up in
-`validate_mock()` (ordering concordance vs the labelled profiles):
+POS filtering (verbs-only for BACE/PWR, nouns for TASK) is implemented and
+Hermann-faithful but OFF by default — on current data it cuts recall more than it
+helps. Toggle for experiments: `import predictor.lta as lta; lta.USE_POS = True`.
 
-| Trait | Concordance | Issue |
+## The real bottleneck: validation data, not the matcher
+
+`validate_mock()` measures ordering concordance vs the labelled profiles. Across
+matching strategies it lands ~60–68% overall, and the differences are within
+noise — because the synthetic prose speeches (P1–P5) embody traits *semantically*
+but barely use dictionary words. The speech labelled **PWR 95%** contains **one**
+literal power word. So the dictionary scorer:
+
+- works well on **keyword-dense** text (Kael/Marina score cleanly), and
+- under-signals on **natural prose**, where meaning != vocabulary.
+
+| Trait | concordance (lemma, no POS) | note |
 |---|---|---|
-| IGB | 100% | but inflated by counting bare "we/us/our" pronouns as in-group bias (Hermann requires a favorable/strength modifier) |
-| CC, SC, TASK | 71–88% | good |
-| BACE | 57% | list is control *vocabulary*, but Hermann scores control via **verbs of action by the speaker** |
-| PWR | 38% | forceful-verb list ("attack", "crush") rarely appears even in high-power prose |
-| DIS | 38% | list is adjectives ("suspicious"); speeches express distrust via nouns/phrases ("acted against our interests") |
+| DIS | 88% | strong |
+| SC, IGB | 71–75% | good |
+| CC | 53% | lemma fixed the morphology gap (was 40%) |
+| BACE, TASK | 50–55% | sparse signal on prose |
+| PWR | 40% | very sparse; "armed forces" noun inflates low-PWR speeches |
 
-Two missing pieces in the source data:
-- `VICS Code/.../Q4bI_txt/words.txt` is absent (only `deeds.txt` ships) → I-4b is deeds-only.
-- `S.C.rtf` omits the pronoun "my" (the manual lists my/myself/I/me/mine).
+**For "deepening the science":**
+1. Keep the dictionary scorer as a fast, explainable baseline.
+2. For natural speech, add a **semantic** scorer (embeddings or an LLM/Claude
+   classifier reading meaning, not keywords), validated against **expert-coded
+   real speeches**, not synthetic ones.
+3. Bands are **relative** to the norming corpus — for absolute High/Low, norm
+   against a broad, neutral leader set, not just war speeches.
 
-**Next-step options:** (a) enrich the PWR/DIS/BACE dictionaries; (b) upgrade to
-verb/POS-based scoring with spaCy for faithful BACE/PWR/DIS coding; (c) expose
-`analyze()` behind a FastAPI endpoint for the Angular front-end.
+Minor data gaps: `VICS .../Q4bI_txt/words.txt` is absent (I-4b is deeds-only);
+the legacy `S.C.rtf` omitted "my" (the curated `SC.txt` includes it).

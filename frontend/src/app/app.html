@@ -1,0 +1,90 @@
+<div class="page">
+  <header>
+    <h1>PoliticalPredictor</h1>
+    <p class="sub">At-a-distance leadership profiling — LTA traits &amp; VICS operational code</p>
+  </header>
+
+  <section class="input-card">
+    <div class="toolbar">
+      <label>Load a sample speech:</label>
+      <select (change)="loadSample($any($event.target).value)">
+        <option value="">— choose —</option>
+        @for (s of samples(); track s.key) {
+          <option [value]="s.text">{{ s.key }}</option>
+        }
+      </select>
+    </div>
+
+    <textarea
+      [ngModel]="text()" (ngModelChange)="text.set($event)"
+      rows="12" placeholder="Paste a political leader's speech or interview here…"></textarea>
+
+    <div class="actions">
+      <button (click)="runDictionary()" [disabled]="dictLoading() || !text().trim()">
+        {{ dictLoading() ? 'Scoring…' : 'Analyze — Dictionary' }}
+      </button>
+      <button class="secondary" (click)="runLlm()"
+        [disabled]="llmLoading() || !text().trim() || meta()?.llm_available === false"
+        [title]="meta()?.llm_available === false ? 'Set GROQ_API_KEY on the server' : ''">
+        {{ llmLoading() ? 'Thinking…' : 'Analyze — LLM (Groq)' }}
+      </button>
+    </div>
+    @if (error()) { <p class="error">{{ error() }}</p> }
+  </section>
+
+  <div class="results">
+    <!-- Dictionary panel -->
+    @if (dict(); as d) {
+      <section class="card">
+        <h2>Dictionary scorer <span class="tag">spaCy lemma</span></h2>
+        <p class="muted">{{ d.lta.tokens }} tokens · LTA bands relative to the norming corpus</p>
+        <table class="traits">
+          <tbody>
+            @for (t of traits; track t) {
+              <tr>
+                <th>{{ t }}<span class="full">{{ traitNames[t] }}</span></th>
+                <td class="val">{{ dictValue(d.lta.traits[t]) }}</td>
+                <td><span class="band" [class]="bandClass(d.lta.traits[t].band)">{{ d.lta.traits[t].band }}</span></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+
+        <h3>VICS operational code</h3>
+        <table class="vics">
+          <tbody>
+            @for (v of vicsList(); track v.code) {
+              <tr>
+                <th>{{ v.code }}</th>
+                <td class="label">{{ v.label }}</td>
+                <td class="val">{{ v.value.toFixed(2) }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </section>
+    }
+
+    <!-- LLM panel -->
+    @if (llm(); as l) {
+      <section class="card">
+        <h2>LLM scorer <span class="tag groq">Groq · {{ l.model }}</span></h2>
+        @if (l.leadership_style) { <p class="style">Style: <strong>{{ l.leadership_style }}</strong></p> }
+        @if (l.summary) { <p class="muted">{{ l.summary }}</p> }
+        <div class="bars">
+          @for (t of traits; track t) {
+            <div class="bar-row">
+              <div class="bar-head">
+                <span class="code">{{ t }}</span>
+                <span class="band" [class]="bandClass(l.traits[t].band)">{{ l.traits[t].band }}</span>
+                <span class="score">{{ l.traits[t].score }}</span>
+              </div>
+              <div class="bar"><div class="fill" [style.width.%]="l.traits[t].score"></div></div>
+              <p class="rationale">{{ l.traits[t].rationale }}</p>
+            </div>
+          }
+        </div>
+      </section>
+    }
+  </div>
+</div>

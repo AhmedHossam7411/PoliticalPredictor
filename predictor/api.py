@@ -9,7 +9,8 @@ detail as it wants, and so later scoring-science work has everything exposed.
 """
 from __future__ import annotations
 
-from fastapi import FastAPI
+import httpx
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,7 @@ from .lta import TRAITS as LTA_TRAITS
 from .vics import score_vics
 from .score import analyze_with_bands, build_norm, default_norm
 from .mock_speeches import MOCK_SPEECHES
+from . import llm
 
 app = FastAPI(title="PoliticalPredictor", version="0.1.0",
               summary="LTA + VICS at-a-distance speech scoring")
@@ -58,6 +60,7 @@ def meta() -> dict:
         "lta_traits": list(LTA_TRAITS),
         "vics_indices": list(score_vics("placeholder text").keys()),
         "norming_corpus_default": list(MOCK_SPEECHES.keys()),
+        "llm_available": llm.available(),
     }
 
 
@@ -77,3 +80,14 @@ def analyze_endpoint(req: AnalyzeRequest) -> dict:
 def analyze_batch(req: BatchRequest) -> dict:
     norm = _norm_for(req.norming_corpus)
     return {"results": [analyze_with_bands(t, norm) for t in req.texts]}
+
+
+@app.post("/analyze/llm")
+def analyze_llm(req: AnalyzeRequest) -> dict:
+    """Semantic LTA scoring via Groq (reads meaning, not keywords)."""
+    try:
+        return llm.score_llm(req.text)
+    except llm.LLMNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"LLM provider error: {exc}")
