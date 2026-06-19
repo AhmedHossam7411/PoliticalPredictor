@@ -46,6 +46,20 @@ Respond ONLY with JSON of this exact shape:
 "rationale": "<one sentence>"}, ... all seven ...}, \
 "leadership_style": "<short phrase>", "summary": "<one to two sentences>"}"""
 
+# Human-readable names for languages we let the model write prose in.
+_LANG_NAMES = {"en": "English", "ar": "Arabic"}
+
+
+def _language_instruction(language: str) -> str:
+    name = _LANG_NAMES.get(language, language)
+    if language == "en":
+        return ""
+    return (
+        f"\n\nWrite the 'rationale', 'summary', and 'leadership_style' field "
+        f"values in {name}. Keep all JSON keys and the 'band' values exactly as "
+        f"English (High / Moderate / Low)."
+    )
+
 
 class LLMNotConfigured(RuntimeError):
     """Raised when GROQ_API_KEY is missing."""
@@ -55,8 +69,13 @@ def available() -> bool:
     return bool(os.environ.get("GROQ_API_KEY"))
 
 
-def score_llm(text: str, model: str | None = None, timeout: float = 60.0) -> dict:
-    """Rate the seven LTA traits semantically via Groq. Returns parsed JSON."""
+def score_llm(text: str, model: str | None = None, timeout: float = 60.0,
+              language: str = "en") -> dict:
+    """Rate the seven LTA traits semantically via Groq. Returns parsed JSON.
+
+    `language` controls the prose fields (rationale/summary/leadership_style);
+    scores, keys and bands stay English.
+    """
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise LLMNotConfigured("GROQ_API_KEY environment variable is not set.")
@@ -67,7 +86,7 @@ def score_llm(text: str, model: str | None = None, timeout: float = 60.0) -> dic
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": _SYSTEM_PROMPT + _language_instruction(language)},
             {"role": "user", "content": f"Score this speech:\n\n{text}"},
         ],
     }
@@ -78,6 +97,7 @@ def score_llm(text: str, model: str | None = None, timeout: float = 60.0) -> dic
     data = json.loads(content)
     data["model"] = model
     data["method"] = "llm"
+    data["language"] = language
     return data
 
 

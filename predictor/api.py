@@ -37,6 +37,7 @@ class AnalyzeRequest(BaseModel):
     norming_corpus: list[str] | None = Field(
         None, description="Optional texts to norm LTA bands against; "
                           "defaults to the bundled mock-speech corpus.")
+    language: str = Field("en", description="Language for LLM prose output (e.g. en, ar)")
 
 
 class BatchRequest(BaseModel):
@@ -86,7 +87,7 @@ def analyze_batch(req: BatchRequest) -> dict:
 def analyze_llm(req: AnalyzeRequest) -> dict:
     """Semantic LTA scoring via Groq (reads meaning, not keywords)."""
     try:
-        return llm.score_llm(req.text)
+        return llm.score_llm(req.text, language=req.language)
     except llm.LLMNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except httpx.HTTPError as exc:
