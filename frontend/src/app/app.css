@@ -17,6 +17,26 @@ header .sub { margin: 0.4rem 0 1.25rem; color: var(--muted); max-width: 70ch; }
   cursor: pointer; white-space: nowrap;
 }
 .lang-btn:hover { background: #334155; }
+.header-actions { display: flex; gap: 0.5rem; align-items: center; }
+
+/* Login gate */
+.login-wrap { display: flex; justify-content: center; align-items: center; min-height: 80vh; }
+.login-card {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 1.5rem; width: 100%; max-width: 400px;
+}
+.login-title { margin: 1rem 0 0.25rem; font-size: 1.25rem; }
+.field { display: block; margin: 0.9rem 0; }
+.field span { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.3rem; }
+.field input, .modal input {
+  width: 100%; box-sizing: border-box; background: #0b1220; color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px; padding: 0.55rem 0.6rem; font: inherit;
+}
+button.wide { width: 100%; margin-top: 0.4rem; }
+button.ghost {
+  background: transparent; color: var(--ink); border: 1px solid var(--line);
+}
+button.ghost:hover { background: #273449; }
 
 .input-card, .card, .help {
   background: var(--card); border: 1px solid var(--line);
@@ -68,6 +88,42 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 
 .results { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; align-items: start; }
 @media (max-width: 900px) { .results { grid-template-columns: 1fr; } }
+
+/* Split view: entered text on the left, summary on the right */
+.split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; align-items: stretch; }
+@media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
+.submitted {
+  white-space: pre-wrap; background: #0b1220; border: 1px solid var(--line);
+  border-radius: 8px; padding: 0.8rem; max-height: 60vh; overflow: auto;
+  font-size: 0.9rem; line-height: 1.6;
+}
+.summary-panel { display: flex; flex-direction: column; }
+.summary-text { font-size: 1.15rem; line-height: 1.65; margin: 0.5rem 0 1rem; }
+.summary-panel .style { font-size: 1rem; margin: 0.25rem 0 0.5rem; }
+.mini-traits { margin: 0.25rem 0 0.5rem; }
+.mini-row {
+  display: flex; align-items: center; gap: 0.6rem;
+  padding: 0.5rem 0; border-top: 1px solid var(--line);
+}
+.mini-row:first-child { border-top: none; }
+.mini-row .trait-name { font-weight: 600; font-size: 0.92rem; }
+.mini-row .band { margin-inline-start: auto; }
+.mini-row .score { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.8rem; min-width: 3.5em; text-align: end; }
+.pdf-note { font-size: 0.8rem; color: var(--muted); margin: 0.25rem 0 0.75rem; }
+.pdf-btn { margin-top: auto; align-self: flex-start; background: var(--accent2); }
+
+/* PDF password modal */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.modal {
+  background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+  padding: 1.25rem; width: 100%; max-width: 380px;
+}
+.modal h3 { margin: 0 0 0.4rem; }
+.modal input { margin-top: 0.6rem; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 0.6rem; margin-top: 0.9rem; }
 
 .card h2 { margin: 0 0 0.25rem; font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
 .card h3 { margin: 1.25rem 0 0.6rem; font-size: 0.8rem; text-transform: uppercase;
