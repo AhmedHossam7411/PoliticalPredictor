@@ -46,6 +46,21 @@ class BatchRequest(BaseModel):
     norming_corpus: list[str] | None = None
 
 
+class NewStakeholder(BaseModel):
+    name: str = Field(..., min_length=1)
+    role: str = ""
+    scope: str = ""
+    personality: str = ""
+    values: list[str] = []
+    supports: list[str] = []
+    opposes: list[str] = []
+    concerns: list[str] = []
+    responses: list[str] = []
+    speech_text: str | None = Field(None, description="Paste a new baseline speech")
+    speech_from: str | None = Field(None, description="Reuse an existing baseline speech id")
+    language: str = "en"
+
+
 def _norm_for(corpus: list[str] | None):
     return build_norm(corpus) if corpus else default_norm()
 
@@ -86,8 +101,31 @@ def analyze_batch(req: BatchRequest) -> dict:
 
 @app.get("/stakeholders")
 def stakeholders_list() -> dict:
-    """The fixed stakeholder panel (profiles the UI can render)."""
+    """The stakeholder panel (built-in + user-added) the UI can render."""
     return {"stakeholders": stk.PROFILES_PUBLIC}
+
+
+@app.get("/stakeholders/speeches")
+def stakeholder_speeches() -> dict:
+    """Baseline speeches on disk, for the 'reuse an existing speech' picker."""
+    return {"speeches": stk.list_speeches()}
+
+
+@app.post("/stakeholders")
+def add_stakeholder_endpoint(req: NewStakeholder) -> dict:
+    """Add a stakeholder; calibrate it if a baseline speech is provided."""
+    try:
+        return stk.add_stakeholder(req.model_dump(), language=req.language)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/stakeholders/{sid}")
+def delete_stakeholder_endpoint(sid: str) -> dict:
+    """Remove a user-added stakeholder (built-ins cannot be deleted)."""
+    if not stk.delete_stakeholder(sid):
+        raise HTTPException(status_code=404, detail="No such custom stakeholder.")
+    return {"deleted": sid}
 
 
 @app.post("/analyze/stakeholders")

@@ -25,6 +25,10 @@ interface Reaction { id: string; name: string; role: string; stance: string;
   confidence: number; reasoning: string; response: string; }
 interface StakeResult { reactions: Reaction[]; method: string; model?: string;
   calibrated?: boolean; }
+interface PublicStakeholder { id: string; name: string; role: string; scope?: string;
+  personality?: string; values: string[]; supports: string[]; opposes: string[];
+  concerns: string[]; custom: boolean; }
+interface SpeechOpt { id: string; label: string; }
 
 @Component({
   selector: 'app-root',
@@ -39,6 +43,9 @@ export class App {
 
   lang = signal<Lang>('en');
   t = computed(() => LANGS[this.lang()]);
+
+  // Top-nav page selection
+  page = signal<'analyze' | 'stakeholders' | 'guide'>('analyze');
 
   // --- Login gate ---------------------------------------------------------
   authed = signal(false);
@@ -58,6 +65,17 @@ export class App {
   llmLoading = signal(false);
   stakeLoading = signal(false);
   error = signal('');
+
+  // --- Stakeholder panel management --------------------------------------
+  stakeholders = signal<PublicStakeholder[]>([]);
+  speeches = signal<SpeechOpt[]>([]);
+  showPanel = signal(false);
+  showAddForm = signal(false);
+  nsName = signal(''); nsRole = signal('');
+  nsValues = signal(''); nsSupports = signal(''); nsOpposes = signal(''); nsConcerns = signal('');
+  speechMode = signal<'new' | 'existing' | 'none'>('new');
+  nsSpeechText = signal(''); nsSpeechFrom = signal('');
+  addLoading = signal(false); addError = signal(''); addMsg = signal('');
 
   // --- PDF password re-prompt --------------------------------------------
   pdfPromptOpen = signal(false);
@@ -124,6 +142,68 @@ export class App {
   constructor() {
     this.http.get<Meta>(`${API}/meta`).subscribe({
       next: (m) => this.meta.set(m), error: () => {},
+    });
+    this.loadStakeholders();
+    this.loadSpeeches();
+  }
+
+  loadStakeholders() {
+    this.http.get<{ stakeholders: PublicStakeholder[] }>(`${API}/stakeholders`).subscribe({
+      next: (r) => this.stakeholders.set(r.stakeholders), error: () => {},
+    });
+  }
+
+  loadSpeeches() {
+    this.http.get<{ speeches: SpeechOpt[] }>(`${API}/stakeholders/speeches`).subscribe({
+      next: (r) => this.speeches.set(r.speeches), error: () => {},
+    });
+  }
+
+  private splitCsv(s: string): string[] {
+    return s.split(',').map((x) => x.trim()).filter(Boolean);
+  }
+
+  toggleAddForm() {
+    this.showAddForm.update((v) => !v);
+    this.addError.set(''); this.addMsg.set('');
+  }
+
+  resetAddForm() {
+    this.nsName.set(''); this.nsRole.set('');
+    this.nsValues.set(''); this.nsSupports.set(''); this.nsOpposes.set(''); this.nsConcerns.set('');
+    this.nsSpeechText.set(''); this.nsSpeechFrom.set(''); this.speechMode.set('new');
+    this.showAddForm.set(false);
+  }
+
+  submitStakeholder() {
+    const name = this.nsName().trim();
+    if (!name) { this.addError.set(this.t().nameRequired); return; }
+    const body: Record<string, unknown> = {
+      name, role: this.nsRole().trim(),
+      values: this.splitCsv(this.nsValues()), supports: this.splitCsv(this.nsSupports()),
+      opposes: this.splitCsv(this.nsOpposes()), concerns: this.splitCsv(this.nsConcerns()),
+      language: this.lang(),
+    };
+    if (this.speechMode() === 'new') body['speech_text'] = this.nsSpeechText();
+    else if (this.speechMode() === 'existing') body['speech_from'] = this.nsSpeechFrom();
+
+    this.addLoading.set(true); this.addError.set(''); this.addMsg.set('');
+    this.http.post<{ calibrated: boolean; warning?: string }>(`${API}/stakeholders`, body).subscribe({
+      next: (r) => {
+        this.addLoading.set(false);
+        this.addMsg.set(this.t().addedOk + (r.calibrated ? ' ' + this.t().addedCalibrated : ''));
+        if (r.warning) this.addError.set(r.warning);
+        this.resetAddForm();
+        this.loadStakeholders(); this.loadSpeeches();
+      },
+      error: (e) => { this.addLoading.set(false); this.addError.set(this.msg(e)); },
+    });
+  }
+
+  deleteStakeholder(id: string) {
+    this.http.delete(`${API}/stakeholders/${id}`).subscribe({
+      next: () => { this.loadStakeholders(); this.loadSpeeches(); },
+      error: (e) => { this.addError.set(this.msg(e)); },
     });
   }
 

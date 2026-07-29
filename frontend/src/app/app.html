@@ -42,16 +42,19 @@
         <button class="lang-btn" (click)="logout()">{{ t().logout }}</button>
       </div>
     </div>
-    <p class="sub">{{ t().subtitle }}</p>
+    <nav class="nav">
+      <button class="nav-item" [class.active]="page() === 'analyze'"
+        (click)="page.set('analyze')">{{ t().navAnalyze }}</button>
+      <button class="nav-item" [class.active]="page() === 'stakeholders'"
+        (click)="page.set('stakeholders')">{{ t().panelHeading }}</button>
+      <button class="nav-item" [class.active]="page() === 'guide'"
+        (click)="page.set('guide')">{{ t().navGuide }}</button>
+    </nav>
   </header>
 
-  <!-- Plain-language guide -->
-  <section class="help">
-    <button class="help-toggle" (click)="toggleHelp()">
-      {{ showHelp() ? t().guideHide : t().guideShow }}
-    </button>
-
-    @if (showHelp()) {
+  <!-- ===== GUIDE page ===== -->
+  @if (page() === 'guide') {
+    <section class="card">
       <div class="help-body">
         <h3>{{ t().howItWorks }}</h3>
         <p>{{ t().howIntro }}</p>
@@ -78,8 +81,12 @@
         <h3>{{ t().opCodeHeading }}</h3>
         <p class="muted">{{ t().opCodeIntro }}</p>
       </div>
-    }
-  </section>
+    </section>
+  }
+
+  <!-- ===== ANALYZE page ===== -->
+  @if (page() === 'analyze') {
+  <p class="sub">{{ t().subtitle }}</p>
 
   <section class="input-card">
     <div class="toolbar">
@@ -101,7 +108,91 @@
     </div>
     @if (error()) { <p class="error">{{ error() }}</p> }
   </section>
+  }
 
+  <!-- ===== STAKEHOLDERS page ===== -->
+  @if (page() === 'stakeholders') {
+    <section class="card">
+      <h2>{{ t().panelHeading }} <span class="tag">{{ stakeholders().length }}</span></h2>
+      <div class="sh-body">
+        <div class="sh-list">
+          @for (s of stakeholders(); track s.id) {
+            <span class="sh-chip" [class.custom]="s.custom">
+              {{ s.name }}
+              @if (s.custom) {
+                <button class="sh-x" (click)="deleteStakeholder(s.id)"
+                  [title]="t().removeStakeholder">×</button>
+              }
+            </span>
+          }
+        </div>
+
+        @if (!showAddForm()) {
+          <button (click)="toggleAddForm()">➕ {{ t().addStakeholder }}</button>
+        } @else {
+          <div class="sh-form">
+            <div class="sh-grid">
+              <label class="field"><span>{{ t().fldName }} *</span>
+                <input [ngModel]="nsName()" (ngModelChange)="nsName.set($event)"></label>
+              <label class="field"><span>{{ t().fldRole }}</span>
+                <input [ngModel]="nsRole()" (ngModelChange)="nsRole.set($event)"></label>
+              <label class="field"><span>{{ t().fldValues }}</span>
+                <input [ngModel]="nsValues()" (ngModelChange)="nsValues.set($event)"
+                  [placeholder]="t().csvHint"></label>
+              <label class="field"><span>{{ t().fldSupports }}</span>
+                <input [ngModel]="nsSupports()" (ngModelChange)="nsSupports.set($event)"
+                  [placeholder]="t().csvHint"></label>
+              <label class="field"><span>{{ t().fldOpposes }}</span>
+                <input [ngModel]="nsOpposes()" (ngModelChange)="nsOpposes.set($event)"
+                  [placeholder]="t().csvHint"></label>
+              <label class="field"><span>{{ t().fldConcerns }}</span>
+                <input [ngModel]="nsConcerns()" (ngModelChange)="nsConcerns.set($event)"
+                  [placeholder]="t().csvHint"></label>
+            </div>
+
+            <div class="sh-speech">
+              <span class="field-label">{{ t().baselineLabel }}</span>
+              <div class="sh-modes">
+                <label><input type="radio" name="sm" [checked]="speechMode() === 'new'"
+                  (change)="speechMode.set('new')"> {{ t().speechNew }}</label>
+                <label><input type="radio" name="sm" [checked]="speechMode() === 'existing'"
+                  (change)="speechMode.set('existing')"> {{ t().speechExisting }}</label>
+                <label><input type="radio" name="sm" [checked]="speechMode() === 'none'"
+                  (change)="speechMode.set('none')"> {{ t().speechNone }}</label>
+              </div>
+              @if (speechMode() === 'new') {
+                <textarea rows="6" [ngModel]="nsSpeechText()"
+                  (ngModelChange)="nsSpeechText.set($event)" [placeholder]="t().placeholder"></textarea>
+              } @else if (speechMode() === 'existing') {
+                <select [ngModel]="nsSpeechFrom()" (ngModelChange)="nsSpeechFrom.set($event)">
+                  <option value="">{{ t().chooseSpeech }}</option>
+                  @for (sp of speeches(); track sp.id) {
+                    <option [value]="sp.id">{{ sp.label }}</option>
+                  }
+                </select>
+              }
+            </div>
+
+            <div class="actions">
+              <button (click)="submitStakeholder()" [disabled]="addLoading() || !nsName().trim()">
+                {{ addLoading() ? t().saving : t().save }}
+              </button>
+              <button class="ghost" (click)="resetAddForm()">{{ t().cancel }}</button>
+              @if (addLoading() && speechMode() !== 'none') {
+                <span class="run-note">{{ t().stakeWait }}</span>
+              }
+            </div>
+          </div>
+        }
+
+        @if (addMsg()) { <p class="ok-msg">{{ addMsg() }}</p> }
+        @if (addError()) { <p class="error">{{ addError() }}</p> }
+      </div>
+    </section>
+  }
+
+  <!-- ===== ANALYZE page (results) ===== -->
+  @if (page() === 'analyze') {
   <!-- Split results: left = the text they entered, right = big summary + PDF -->
   @if (analyzed()) {
     <div class="split">
@@ -205,6 +296,7 @@
         }
       </div>
     </section>
+  }
   }
 
   <!-- Password re-prompt before opening the full analysis -->

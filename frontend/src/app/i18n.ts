@@ -35,6 +35,14 @@ export interface Bundle {
   stakeHeading: string; stakeIntro: string; stakeWait: string; calibratedTag: string;
   likelyResponse: string; confidenceLabel: string;
   filterAll: string; coalitionLabel: string;
+  // Add-stakeholder panel
+  navAnalyze: string; navGuide: string;
+  panelHeading: string; addStakeholder: string;
+  fldName: string; fldRole: string; fldValues: string; fldSupports: string;
+  fldOpposes: string; fldConcerns: string; csvHint: string;
+  baselineLabel: string; speechNew: string; speechExisting: string; speechNone: string;
+  chooseSpeech: string; save: string; saving: string;
+  addedOk: string; addedCalibrated: string; nameRequired: string; removeStakeholder: string;
   stances: Record<string, string>;
   bands: Record<string, string>;
   traitNames: Record<string, string>;
@@ -93,6 +101,16 @@ const en: Bundle = {
   calibratedTag: 'calibrated on baseline speeches',
   likelyResponse: 'Likely response:', confidenceLabel: 'confidence',
   filterAll: 'All', coalitionLabel: 'Coalition:',
+  navAnalyze: 'Analyze', navGuide: 'Guide',
+  panelHeading: 'Stakeholder panel', addStakeholder: 'Add stakeholder',
+  fldName: 'Name', fldRole: 'Role / title', fldValues: 'Values', fldSupports: 'Usually supports',
+  fldOpposes: 'Usually opposes', fldConcerns: 'Main concerns', csvHint: 'comma-separated',
+  baselineLabel: 'Baseline speech (for calibration)',
+  speechNew: 'Paste a new speech', speechExisting: 'Reuse an existing speech',
+  speechNone: 'No speech (use fields only)', chooseSpeech: '— choose a speech —',
+  save: 'Save stakeholder', saving: 'Saving…',
+  addedOk: 'Stakeholder added.', addedCalibrated: 'Calibrated from the speech.',
+  nameRequired: 'Please enter a name.', removeStakeholder: 'Remove',
   stances: { Support: 'Support', Oppose: 'Oppose', Mixed: 'Mixed', Neutral: 'Neutral' },
   bands: { High: 'High', Moderate: 'Moderate', Low: 'Low' },
   traitNames: {
@@ -192,6 +210,16 @@ const ar: Bundle = {
   calibratedTag: 'مُعايَر على الخطابات المرجعية',
   likelyResponse: 'الاستجابة المرجّحة:', confidenceLabel: 'مستوى الثقة',
   filterAll: 'الكل', coalitionLabel: 'الاصطفاف:',
+  navAnalyze: 'التحليل', navGuide: 'الدليل',
+  panelHeading: 'لوحة أصحاب المصلحة', addStakeholder: 'إضافة صاحب مصلحة',
+  fldName: 'الاسم', fldRole: 'الدور / المنصب', fldValues: 'القيم', fldSupports: 'يؤيّد عادةً',
+  fldOpposes: 'يعارض عادةً', fldConcerns: 'الاهتمامات الرئيسية', csvHint: 'مفصولة بفواصل',
+  baselineLabel: 'الخطاب المرجعي (للمعايرة)',
+  speechNew: 'لصق خطاب جديد', speechExisting: 'إعادة استخدام خطاب موجود',
+  speechNone: 'بدون خطاب (الحقول فقط)', chooseSpeech: '— اختر خطابًا —',
+  save: 'حفظ صاحب المصلحة', saving: 'جارٍ الحفظ…',
+  addedOk: 'تمت إضافة صاحب المصلحة.', addedCalibrated: 'تمت المعايرة من الخطاب.',
+  nameRequired: 'يرجى إدخال الاسم.', removeStakeholder: 'إزالة',
   stances: { Support: 'مؤيّد', Oppose: 'معارض', Mixed: 'متباين', Neutral: 'محايد' },
   bands: { High: 'عالٍ', Moderate: 'متوسط', Low: 'منخفض' },
   traitNames: {

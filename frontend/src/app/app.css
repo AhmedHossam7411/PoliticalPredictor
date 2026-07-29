@@ -45,6 +45,24 @@ header .sub { margin: 0.4rem 0 1.25rem; color: var(--on-bg-muted); max-width: 70
 .lang-btn:hover { background: #dde5f1; }
 .header-actions { display: flex; gap: 0.5rem; align-items: center; }
 
+/* Top navigation */
+.nav {
+  display: flex; flex-wrap: wrap; gap: 0.15rem; margin: 0.9rem 0 1.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+}
+.nav-item {
+  background: transparent; color: var(--on-bg-muted); border: none;
+  border-bottom: 3px solid transparent; border-radius: 0;
+  padding: 0.55rem 1rem; font: inherit; font-weight: 700; cursor: pointer;
+  margin-bottom: -1px;
+}
+.nav-item:hover { background: transparent; color: var(--on-bg); }
+.nav-item.active { color: var(--on-bg); border-bottom-color: var(--accent2); }
+
+/* Guide page: no extra padding when the help body sits inside a card */
+.card .help-body { padding: 0; }
+.sh-body { padding: 0; }
+
 /* Login gate — full-viewport, centered, over a ministry background */
 .login-wrap {
   position: fixed; inset: 0; z-index: 25;
@@ -149,6 +167,30 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .pdf-note { font-size: 0.8rem; color: var(--muted); margin: 0.25rem 0 0.75rem; }
 .pdf-btn { margin-top: auto; align-self: flex-start; background: var(--accent2); }
 .pdf-btn:hover { background: #0e7490; }
+
+/* Stakeholder panel management */
+.sh-list { display: flex; flex-wrap: wrap; gap: 0.4rem; margin: 0.25rem 0 0.9rem; }
+.sh-chip {
+  display: inline-flex; align-items: center; gap: 0.35rem;
+  background: var(--surface2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 0.25rem 0.55rem; font-size: 0.82rem; font-weight: 600;
+}
+.sh-chip.custom { border-color: var(--accent); }
+.sh-x {
+  background: transparent; color: #c81e1e; border: none; padding: 0 0.1rem;
+  font-size: 1.05rem; line-height: 1; cursor: pointer; font-weight: 700;
+}
+.sh-x:hover { color: #7f1d1d; background: transparent; }
+.sh-form { margin-top: 0.5rem; }
+.sh-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 0.9rem; }
+@media (max-width: 640px) { .sh-grid { grid-template-columns: 1fr; } }
+.sh-form .field { margin: 0.3rem 0; }
+.sh-speech { margin-top: 0.9rem; }
+.field-label { display: block; font-size: 0.85rem; color: var(--muted); font-weight: 600; margin-bottom: 0.35rem; }
+.sh-modes { display: flex; flex-wrap: wrap; gap: 0.9rem; margin-bottom: 0.5rem; font-size: 0.88rem; }
+.sh-modes label { display: inline-flex; align-items: center; gap: 0.3rem; cursor: pointer; }
+.sh-speech textarea, .sh-speech select { width: 100%; box-sizing: border-box; }
+.ok-msg { color: #15803d; font-weight: 600; margin: 0.75rem 0 0; }
 
 /* Stakeholder reactions */
 .coalition { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; margin: 0.6rem 0 0.4rem; }
