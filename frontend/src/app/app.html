@@ -1,4 +1,9 @@
 <div class="page" [attr.dir]="t().dir">
+  <!-- Brand logos, pinned to the left of the page (outside the cards) -->
+  <div class="page-logos">
+    <img class="pl-logo pl-eydp" src="EYDP.png" alt="Egyptian Youth Diplomacy Program">
+  </div>
+
   <!-- Login gate -->
   @if (!authed()) {
     <div class="login-wrap">
@@ -7,6 +12,7 @@
           <h1>PoliticalPredictor</h1>
           <button class="lang-btn" (click)="toggleLang()">🌐 {{ t().switchTo }}</button>
         </div>
+
         <h2 class="login-title">{{ t().loginTitle }}</h2>
         <p class="sub">{{ t().loginSub }}</p>
 
@@ -143,6 +149,59 @@
         </button>
       </section>
     </div>
+  }
+
+  <!-- Stakeholder reactions -->
+  @if (stakeLoading() && !stake()) {
+    <section class="card">
+      <h2>{{ t().stakeHeading }}</h2>
+      <p class="muted">{{ t().stakeWait }}</p>
+    </section>
+  }
+  @if (stake(); as st) {
+    <section class="card">
+      <h2>{{ t().stakeHeading }}</h2>
+      <p class="muted">{{ t().stakeIntro }}</p>
+
+      <!-- Coalition summary -->
+      <div class="coalition">
+        <span class="coalition-label">{{ t().coalitionLabel }}</span>
+        @for (s of stanceOrder; track s) {
+          @if (stanceCounts()[s]) {
+            <span class="coalition-chip" [class]="stanceClass(s)">
+              {{ stanceCounts()[s] }} {{ stanceLabel(s) }}
+            </span>
+          }
+        }
+      </div>
+
+      <!-- Stance filter -->
+      <div class="stake-filters">
+        <button class="filter-chip" [class.active]="stanceFilter() === 'All'"
+          (click)="setStanceFilter('All')">{{ t().filterAll }} ({{ st.reactions.length }})</button>
+        @for (s of stanceOrder; track s) {
+          @if (stanceCounts()[s]) {
+            <button class="filter-chip" [class.active]="stanceFilter() === s"
+              (click)="setStanceFilter(s)">{{ stanceLabel(s) }} ({{ stanceCounts()[s] }})</button>
+          }
+        }
+      </div>
+
+      <div class="stake-grid">
+        @for (r of filteredReactions(); track r.id) {
+          <div class="stake-card">
+            <div class="stake-top">
+              <span class="stake-name">{{ r.name }}</span>
+              <span class="stance" [class]="stanceClass(r.stance)">{{ stanceLabel(r.stance) }}</span>
+            </div>
+            <p class="stake-role">{{ r.role }}</p>
+            <div class="conf-bar"><div class="conf-fill" [style.width.%]="r.confidence"></div></div>
+            <p class="stake-reason">{{ r.reasoning }}</p>
+            <p class="stake-resp"><strong>{{ t().likelyResponse }}</strong> {{ r.response }}</p>
+          </div>
+        }
+      </div>
+    </section>
   }
 
   <!-- Password re-prompt before opening the full analysis -->

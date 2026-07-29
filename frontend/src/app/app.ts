@@ -21,6 +21,9 @@ interface LlmResult {
 }
 interface Meta { lta_traits: string[]; vics_indices: string[];
   norming_corpus_default: string[]; llm_available: boolean; }
+interface Reaction { id: string; name: string; role: string; stance: string;
+  confidence: number; reasoning: string; response: string; }
+interface StakeResult { reactions: Reaction[]; method: string; model?: string; }
 
 @Component({
   selector: 'app-root',
@@ -49,8 +52,10 @@ export class App {
 
   dict = signal<DictResult | null>(null);
   llm = signal<LlmResult | null>(null);
+  stake = signal<StakeResult | null>(null);
   dictLoading = signal(false);
   llmLoading = signal(false);
+  stakeLoading = signal(false);
   error = signal('');
 
   // --- PDF password re-prompt --------------------------------------------
@@ -58,8 +63,37 @@ export class App {
   pdfPass = signal('');
   pdfError = signal('');
 
-  anyLoading = computed(() => this.dictLoading() || this.llmLoading());
-  analyzed = computed(() => !!this.dict() || !!this.llm());
+  anyLoading = computed(() =>
+    this.dictLoading() || this.llmLoading() || this.stakeLoading());
+  analyzed = computed(() => !!this.dict() || !!this.llm() || !!this.stake());
+
+  // Stakeholder stance filter + counts
+  readonly stanceOrder = ['Support', 'Oppose', 'Mixed', 'Neutral'];
+  stanceFilter = signal<string>('All');
+
+  stanceCounts = computed(() => {
+    const counts: Record<string, number> = { Support: 0, Oppose: 0, Mixed: 0, Neutral: 0 };
+    for (const r of this.stake()?.reactions ?? []) {
+      if (counts[r.stance] !== undefined) counts[r.stance]++;
+    }
+    return counts;
+  });
+
+  /** Reactions filtered by the chosen stance, grouped by stance then confidence. */
+  filteredReactions = computed(() => {
+    const all = this.stake()?.reactions ?? [];
+    const f = this.stanceFilter();
+    const rank = (s: string) => {
+      const i = this.stanceOrder.indexOf(s);
+      return i === -1 ? 99 : i;
+    };
+    return all
+      .filter((r) => f === 'All' || r.stance === f)
+      .slice()
+      .sort((a, b) => rank(a.stance) - rank(b.stance) || b.confidence - a.confidence);
+  });
+
+  setStanceFilter(s: string) { this.stanceFilter.set(s); }
 
   vicsList = computed(() => {
     const d = this.dict();
@@ -124,16 +158,29 @@ export class App {
     this.text.set('');
     this.dict.set(null);
     this.llm.set(null);
+    this.stake.set(null);
     this.submittedText.set('');
     this.error.set('');
   }
 
-  /** Run both scorers together; skip the AI one if the server has it switched off. */
+  /** Run every analysis together; skip the AI trait scorer if the server has it off. */
   runBoth() {
     if (!this.text().trim()) return;
     this.submittedText.set(this.text());
     this.runDictionary();
+    this.runStakeholders();
     if (this.meta()?.llm_available !== false) this.runLlm();
+  }
+
+  runStakeholders() {
+    if (!this.text().trim()) return;
+    this.stanceFilter.set('All');
+    this.stakeLoading.set(true); this.error.set('');
+    this.http.post<StakeResult>(`${API}/analyze/stakeholders`,
+      { text: this.text(), language: this.lang() }).subscribe({
+      next: (r) => { this.stake.set(r); this.stakeLoading.set(false); },
+      error: (e) => { this.error.set(this.msg(e)); this.stakeLoading.set(false); },
+    });
   }
 
   runDictionary() {
@@ -179,6 +226,14 @@ export class App {
 
   bandLabel(band: string): string {
     return this.t().bands[band] ?? band;
+  }
+
+  stanceClass(stance: string): string {
+    return 'stance-' + (stance || '').toLowerCase();
+  }
+
+  stanceLabel(stance: string): string {
+    return this.t().stances[stance] ?? stance;
   }
 
   /** Display value for a dictionary trait: ratio as %, density as raw. */
@@ -243,6 +298,20 @@ export class App {
       ai = `<h2>${this.esc(b.pdfAiHeading)}</h2>${style}${summ}${rows}`;
     }
 
+    let stake = '';
+    const st = this.stake();
+    if (st) {
+      const rows = st.reactions.map((r) =>
+        `<div class="ai-row">
+          <p><strong>${this.esc(r.name)}</strong> — ${this.esc(r.role)}</p>
+          <p><strong>${this.esc(this.stanceLabel(r.stance))}</strong>
+             (${r.confidence}%) — ${this.esc(r.reasoning)}</p>
+          <p class="rat"><em>${this.esc(b.likelyResponse)}</em> ${this.esc(r.response)}</p>
+        </div>`).join('');
+      stake = `<h2>${this.esc(b.stakeHeading)}</h2>
+        <p>${this.esc(b.stakeIntro)}</p>${rows}`;
+    }
+
     return `<!doctype html><html dir="${dir}"><head><meta charset="utf-8">
       <title>${this.esc(b.pdfDocTitle)}</title>
       <style>
@@ -264,6 +333,7 @@ export class App {
       <div class="quote">${this.esc(this.submittedText())}</div>
       ${word}
       ${ai}
+      ${stake}
       <p class="foot">${this.esc(b.pdfGenerated)}</p>
       </body></html>`;
   }

@@ -19,6 +19,7 @@ from .vics import score_vics
 from .score import analyze_with_bands, build_norm, default_norm
 from .mock_speeches import MOCK_SPEECHES
 from . import llm
+from . import stakeholders as stk
 
 app = FastAPI(title="PoliticalPredictor", version="0.1.0",
               summary="LTA + VICS at-a-distance speech scoring")
@@ -81,6 +82,18 @@ def analyze_endpoint(req: AnalyzeRequest) -> dict:
 def analyze_batch(req: BatchRequest) -> dict:
     norm = _norm_for(req.norming_corpus)
     return {"results": [analyze_with_bands(t, norm) for t in req.texts]}
+
+
+@app.get("/stakeholders")
+def stakeholders_list() -> dict:
+    """The fixed stakeholder panel (profiles the UI can render)."""
+    return {"stakeholders": stk.PROFILES_PUBLIC}
+
+
+@app.post("/analyze/stakeholders")
+def analyze_stakeholders(req: AnalyzeRequest) -> dict:
+    """Predict how each stakeholder reacts to the speech / policy text."""
+    return stk.react(req.text, language=req.language)
 
 
 @app.post("/analyze/llm")
