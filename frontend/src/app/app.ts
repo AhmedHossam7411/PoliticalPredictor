@@ -23,7 +23,8 @@ interface Meta { lta_traits: string[]; vics_indices: string[];
   norming_corpus_default: string[]; llm_available: boolean; }
 interface Reaction { id: string; name: string; role: string; stance: string;
   confidence: number; reasoning: string; response: string; }
-interface StakeResult { reactions: Reaction[]; method: string; model?: string; }
+interface StakeResult { reactions: Reaction[]; method: string; model?: string;
+  calibrated?: boolean; }
 
 @Component({
   selector: 'app-root',

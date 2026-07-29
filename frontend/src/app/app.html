@@ -160,7 +160,10 @@
   }
   @if (stake(); as st) {
     <section class="card">
-      <h2>{{ t().stakeHeading }}</h2>
+      <h2>
+        {{ t().stakeHeading }}
+        @if (st.calibrated) { <span class="tag groq">{{ t().calibratedTag }}</span> }
+      </h2>
       <p class="muted">{{ t().stakeIntro }}</p>
 
       <!-- Coalition summary -->

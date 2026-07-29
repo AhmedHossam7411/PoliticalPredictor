@@ -32,7 +32,7 @@ export interface Bundle {
   pdfDocTitle: string; pdfInputHeading: string; pdfWordHeading: string;
   pdfAiHeading: string; pdfGenerated: string;
   // Stakeholder reactions
-  stakeHeading: string; stakeIntro: string; stakeWait: string;
+  stakeHeading: string; stakeIntro: string; stakeWait: string; calibratedTag: string;
   likelyResponse: string; confidenceLabel: string;
   filterAll: string; coalitionLabel: string;
   stances: Record<string, string>;
@@ -90,6 +90,7 @@ const en: Bundle = {
   stakeHeading: 'Stakeholder reactions',
   stakeIntro: 'How each stakeholder is likely to react to this speech or policy.',
   stakeWait: 'Predicting how each stakeholder reacts…',
+  calibratedTag: 'calibrated on baseline speeches',
   likelyResponse: 'Likely response:', confidenceLabel: 'confidence',
   filterAll: 'All', coalitionLabel: 'Coalition:',
   stances: { Support: 'Support', Oppose: 'Oppose', Mixed: 'Mixed', Neutral: 'Neutral' },
@@ -188,6 +189,7 @@ const ar: Bundle = {
   stakeHeading: 'ردود أصحاب المصلحة',
   stakeIntro: 'كيف يُرجَّح أن يتفاعل كل صاحب مصلحة مع هذا الخطاب أو السياسة.',
   stakeWait: 'جارٍ التنبّؤ بكيفية تفاعل كل صاحب مصلحة…',
+  calibratedTag: 'مُعايَر على الخطابات المرجعية',
   likelyResponse: 'الاستجابة المرجّحة:', confidenceLabel: 'مستوى الثقة',
   filterAll: 'الكل', coalitionLabel: 'الاصطفاف:',
   stances: { Support: 'مؤيّد', Oppose: 'معارض', Mixed: 'متباين', Neutral: 'محايد' },

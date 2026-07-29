@@ -14,10 +14,19 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 
 import httpx
 
 from .llm import GROQ_URL, DEFAULT_MODEL, _LANG_NAMES, LLMNotConfigured, available
+
+# Decision profiles distilled from each stakeholder's baseline speech
+# (see calibrate_baselines.py). Absent until that script has been run.
+_PROFILE_PATH = Path(__file__).resolve().parent / "baseline_profiles.json"
+try:
+    BASELINE_PROFILES: dict = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
+except (OSError, json.JSONDecodeError):
+    BASELINE_PROFILES = {}
 
 # --- The stakeholder panel --------------------------------------------------
 # Each profile is deliberately structured so both the UI and the heuristic can
@@ -244,20 +253,35 @@ def heuristic_react(text: str) -> dict:
 def _profiles_for_prompt() -> str:
     lines = []
     for s in STAKEHOLDERS:
-        lines.append(
-            f"- id={s['id']} | {s['name']} ({s['role']}). "
-            f"Values: {', '.join(s['values'])}. "
-            f"Supports: {', '.join(s['supports'])}. "
-            f"Opposes: {', '.join(s['opposes'])}. "
-            f"Concerns: {', '.join(s['concerns'])}."
-        )
+        parts = [
+            f"- id={s['id']} | {s['name']} ({s['role']}).",
+            f"Values: {', '.join(s['values'])}.",
+            f"Supports: {', '.join(s['supports'])}.",
+            f"Opposes: {', '.join(s['opposes'])}.",
+            f"Concerns: {', '.join(s['concerns'])}.",
+        ]
+        base = BASELINE_PROFILES.get(s["id"])
+        if base:
+            parts.append(f"Worldview: {base.get('worldview', '')}")
+            if base.get("priorities"):
+                parts.append(f"Priorities: {', '.join(base['priorities'])}.")
+            parts.append(f"Decision style: {base.get('decision_style', '')}")
+            if base.get("values_and_redlines"):
+                parts.append(f"Non-negotiables: {base['values_and_redlines']}")
+            parts.append(f"Reacts: {base.get('reaction_tendencies', '')}")
+            if base.get("key_quotes"):
+                quotes = " | ".join(f'"{q}"' for q in base["key_quotes"])
+                parts.append(f"In their own words: {quotes}")
+        lines.append(" ".join(parts))
     return "\n".join(lines)
 
 
 _SYSTEM_PROMPT = """You predict how specific stakeholders react to a political \
 leader's speech or a policy announcement. For each stakeholder below, judge the \
 MEANING of the text against their values, supports, opposes and concerns -- not \
-keywords.
+keywords. Where a stakeholder includes a Worldview / Decision style / Reacts \
+profile (distilled from their own baseline speech), weigh it heavily: reason the \
+way THAT person reasons, and ground your rationale in their stated tendencies.
 
 For each stakeholder decide:
 - stance: exactly one of "Support", "Oppose", "Mixed", or "Neutral".
@@ -327,7 +351,8 @@ def llm_react(text: str, language: str = "en", timeout: float = 60.0) -> dict:
     # Preserve panel order.
     order = {s["id"]: i for i, s in enumerate(STAKEHOLDERS)}
     reactions.sort(key=lambda r: order.get(r["id"], 99))
-    return {"reactions": reactions, "method": "llm", "model": model}
+    return {"reactions": reactions, "method": "llm", "model": model,
+            "calibrated": bool(BASELINE_PROFILES)}
 
 
 def react(text: str, language: str = "en") -> dict:
