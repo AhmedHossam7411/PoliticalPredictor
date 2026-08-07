@@ -19,26 +19,30 @@ from pathlib import Path
 import httpx
 
 from .llm import GROQ_URL, DEFAULT_MODEL, _LANG_NAMES, LLMNotConfigured, available
+from . import store as _storage
 
-# Decision profiles distilled from each stakeholder's baseline speech
-# (see calibrate_baselines.py). Absent until that script has been run.
+# Built-in decision profiles + baseline speeches are bundled, read-only files
+# (produced by calibrate_baselines.py). User-added stakeholders and their
+# profiles/speeches persist through the store (JSON locally, Postgres hosted).
 _PROFILE_PATH = Path(__file__).resolve().parent / "baseline_profiles.json"
-# User-added stakeholders (created from the UI) live here and merge with the built-ins.
-_CUSTOM_PATH = Path(__file__).resolve().parent / "custom_stakeholders.json"
 _BASELINE_DIR = Path(__file__).resolve().parent.parent / "baseline_speeches"
 
+_store = _storage.get_store()
+
+# Merged view (built-in + custom) that reaction code reads at call time.
 BASELINE_PROFILES: dict = {}
+_BUILTIN_PROFILES: dict = {}
 
 
-def _load_profiles() -> None:
-    global BASELINE_PROFILES
+def _load_builtin_profiles() -> None:
+    global _BUILTIN_PROFILES
     try:
-        BASELINE_PROFILES = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
+        _BUILTIN_PROFILES = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        BASELINE_PROFILES = {}
+        _BUILTIN_PROFILES = {}
 
 
-_load_profiles()
+_load_builtin_profiles()
 
 # --- The stakeholder panel --------------------------------------------------
 # Each profile is deliberately structured so both the UI and the heuristic can
@@ -189,18 +193,28 @@ def _public(s: dict) -> dict:
     return out
 
 
-def _load_custom() -> list[dict]:
-    try:
-        return json.loads(_CUSTOM_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return []
+_STAKEHOLDER_KEYS = ("id", "name", "role", "scope", "personality", "values",
+                     "supports", "opposes", "concerns", "responses")
+
+
+def _view(record: dict) -> dict:
+    """A custom record (which also carries speech/profile) as a panel entry."""
+    s = {k: record.get(k) for k in _STAKEHOLDER_KEYS}
+    s["custom"] = True
+    return s
 
 
 def _rebuild() -> None:
-    """Refresh the merged panel (built-ins + user-added) and its public view."""
-    global STAKEHOLDERS, PROFILES_PUBLIC
-    STAKEHOLDERS = _BUILTIN + _load_custom()
+    """Refresh the merged panel + profiles from the built-ins and the store."""
+    global STAKEHOLDERS, PROFILES_PUBLIC, BASELINE_PROFILES
+    custom = _store.list()
+    STAKEHOLDERS = _BUILTIN + [_view(r) for r in custom]
     PROFILES_PUBLIC = [_public(s) for s in STAKEHOLDERS]
+    profiles = dict(_BUILTIN_PROFILES)
+    for r in custom:
+        if r.get("profile"):
+            profiles[r["id"]] = r["profile"]
+    BASELINE_PROFILES = profiles
 
 
 _rebuild()
@@ -214,19 +228,35 @@ def _as_list(v) -> list[str]:
     return [str(x).strip() for x in items if str(x).strip()]
 
 
+def _speech_by_id(sid: str) -> str:
+    """Baseline speech text for a stakeholder id: bundled file, else custom record."""
+    f = _BASELINE_DIR / f"{sid}.txt"
+    if f.exists():
+        return f.read_text(encoding="utf-8").strip()
+    for r in _store.list():
+        if r.get("id") == sid and r.get("speech"):
+            return str(r["speech"]).strip()
+    return ""
+
+
 def list_speeches() -> list[dict]:
-    """Baseline speeches on disk, for the 'reuse an existing speech' picker."""
+    """Available baseline speeches for the 'reuse an existing speech' picker:
+    the bundled built-ins plus any custom stakeholder that has one."""
     names = {s["id"]: s["name"] for s in STAKEHOLDERS}
-    out = []
+    out, seen = [], set()
     if _BASELINE_DIR.exists():
         for f in sorted(_BASELINE_DIR.glob("*.txt")):
             out.append({"id": f.stem, "label": names.get(f.stem, f.stem)})
+            seen.add(f.stem)
+    for r in _store.list():
+        if r.get("speech") and r.get("id") not in seen:
+            out.append({"id": r["id"], "label": r.get("name", r["id"])})
     return out
 
 
 def add_stakeholder(data: dict, language: str = "en") -> dict:
     """Create a stakeholder from the UI. If a baseline speech is supplied (pasted
-    or reused from an existing one), distil and cache a decision profile for it."""
+    or reused from an existing one), distil a decision profile and store both."""
     name = (data.get("name") or "").strip()
     if not name:
         raise ValueError("A stakeholder name is required.")
@@ -237,7 +267,7 @@ def add_stakeholder(data: dict, language: str = "en") -> dict:
     while sid in taken:
         sid, n = f"{base_id}-{n}", n + 1
 
-    s = {
+    record = {
         "id": sid, "name": name, "custom": True,
         "role": (data.get("role") or "").strip(),
         "scope": (data.get("scope") or "").strip() or "Custom",
@@ -247,59 +277,36 @@ def add_stakeholder(data: dict, language: str = "en") -> dict:
         "opposes": _as_list(data.get("opposes")),
         "concerns": _as_list(data.get("concerns")),
         "responses": _as_list(data.get("responses")) or ["Respond according to their interests"],
+        "speech": None, "profile": None,
     }
-    custom = _load_custom()
-    custom.append(s)
-    _CUSTOM_PATH.write_text(json.dumps(custom, ensure_ascii=False, indent=2), encoding="utf-8")
-    _rebuild()
 
     # Resolve the baseline speech: pasted text wins, else reuse an existing one.
     speech = (data.get("speech_text") or "").strip()
     if not speech and data.get("speech_from"):
-        src = _BASELINE_DIR / f"{data['speech_from']}.txt"
-        if src.exists():
-            speech = src.read_text(encoding="utf-8").strip()
+        speech = _speech_by_id(str(data["speech_from"]))
 
     calibrated, warning = False, None
     if speech:
-        _BASELINE_DIR.mkdir(exist_ok=True)
-        (_BASELINE_DIR / f"{sid}.txt").write_text(speech + "\n", encoding="utf-8")
+        record["speech"] = speech
         try:
             from .calibrate_baselines import distill  # lazy: avoids import cycle
-            prof = distill(name, s["role"], speech)
-            prof["source"] = f"{sid}.txt"
-            profiles = {}
-            if _PROFILE_PATH.exists():
-                profiles = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
-            profiles[sid] = prof
-            _PROFILE_PATH.write_text(json.dumps(profiles, ensure_ascii=False, indent=2),
-                                     encoding="utf-8")
-            _load_profiles()
+            prof = distill(name, record["role"], speech)
+            prof["source"] = f"{sid} (custom)"
+            record["profile"] = prof
             calibrated = True
         except Exception as exc:  # calibration is best-effort; the stakeholder still exists
             warning = f"Stakeholder added, but calibration failed: {exc}"
 
-    return {"stakeholder": _public(s), "calibrated": calibrated, "warning": warning}
+    _store.add(record)
+    _rebuild()
+    return {"stakeholder": _public(_view(record)), "calibrated": calibrated, "warning": warning}
 
 
 def delete_stakeholder(sid: str) -> bool:
     """Remove a user-added stakeholder (built-ins cannot be deleted)."""
-    custom = _load_custom()
-    kept = [s for s in custom if s["id"] != sid]
-    if len(kept) == len(custom):
+    if not _store.delete(sid):
         return False
-    _CUSTOM_PATH.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
     _rebuild()
-
-    if _PROFILE_PATH.exists():
-        profiles = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
-        if profiles.pop(sid, None) is not None:
-            _PROFILE_PATH.write_text(json.dumps(profiles, ensure_ascii=False, indent=2),
-                                     encoding="utf-8")
-            _load_profiles()
-    speech = _BASELINE_DIR / f"{sid}.txt"
-    if speech.exists():
-        speech.unlink()
     return True
 
 

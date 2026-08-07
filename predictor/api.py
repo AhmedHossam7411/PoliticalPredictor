@@ -9,6 +9,8 @@ detail as it wants, and so later scoring-science work has everything exposed.
 """
 from __future__ import annotations
 
+import os
+
 import httpx
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,10 +26,15 @@ from . import stakeholders as stk
 app = FastAPI(title="PoliticalPredictor", version="0.1.0",
               summary="LTA + VICS at-a-distance speech scoring")
 
-# Allow the Angular dev server (and others) to call the API during development.
+# CORS: defaults to "*" for local dev; set ALLOWED_ORIGINS (comma-separated) in
+# production to restrict to your frontend domain(s).
+_origins_env = os.environ.get("ALLOWED_ORIGINS", "*").strip()
+_allow_origins = ["*"] if _origins_env == "*" else [
+    o.strip() for o in _origins_env.split(",") if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # tighten to the Angular origin before deploy
+    allow_origins=_allow_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )

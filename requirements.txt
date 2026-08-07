@@ -1,6 +1,10 @@
 # API
 fastapi>=0.115
 uvicorn[standard]>=0.30
+# LLM (Groq) calls
+httpx>=0.27
+# Postgres store (only used when DATABASE_URL is set; harmless otherwise)
+psycopg[binary]>=3.2
 
 # NLP: lemmatization + POS for LTA matching
 spacy>=3.8

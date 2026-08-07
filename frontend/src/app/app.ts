@@ -3,7 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { LANGS, Lang } from './i18n';
 
-const API = 'http://127.0.0.1:8000';
+// Backend URL. Overridden in production by setting window.__API_URL__ in
+// index.html (to the deployed backend); defaults to the local dev server.
+declare global { interface Window { __API_URL__?: string } }
+const API = window.__API_URL__ || 'http://127.0.0.1:8000';
 
 // Simple front-end gate. Change these to whatever username / password you want.
 const CREDENTIALS = { username: 'admin', password: 'predict2026' };
