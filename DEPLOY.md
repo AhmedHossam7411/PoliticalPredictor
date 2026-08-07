@@ -9,11 +9,24 @@ Prerequisite: push this repo to GitHub (Render and Vercel both deploy from it).
 
 ## 1. Database — Neon (Postgres)
 
-1. Sign up at https://neon.tech and create a project.
-2. Copy the **connection string** (looks like
-   `postgresql://user:pass@ep-xxx.neon.tech/dbname?sslmode=require`).
-3. Keep it for the `DATABASE_URL` env var below. The `stakeholders` table is
-   created automatically on first run — nothing to set up manually.
+**Option A — CLI (run in your own terminal; it needs a browser login):**
+```bash
+npx neonctl@latest init
+```
+It logs you in, creates a Neon project + database, and prints the **connection
+string**. (It can't be run through the AI assistant — the login is interactive.)
+
+**Option B — dashboard:** sign up at https://neon.tech, create a project, and
+copy the connection string from the dashboard.
+
+Either way you end up with a string like
+`postgresql://user:pass@ep-xxx.neon.tech/dbname?sslmode=require`. Keep it for the
+`DATABASE_URL` env var below — treat it as a **secret** (paste it into Render, not
+into chat/commits). The `stakeholders` table is created automatically on first run.
+
+> Test locally first (optional): `pip install "psycopg[binary]"`, set
+> `DATABASE_URL` in your shell, run the backend, add a stakeholder, restart, and
+> confirm it persisted.
 
 ## 2. Backend — Render (FastAPI)
 
