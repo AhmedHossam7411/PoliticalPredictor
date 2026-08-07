@@ -1,3 +1,13 @@
+---
+title: PoliticalPredictor API
+emoji: 🦅
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
 # PoliticalPredictor
 
 At-a-distance political leadership profiling. Scores a leader's speech/interview on:
