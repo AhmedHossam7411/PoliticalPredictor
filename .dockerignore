@@ -1,0 +1,16 @@
+# Keep the backend image small — exclude the frontend and everything else.
+frontend/
+node_modules/
+**/__pycache__/
+*.pyc
+.git/
+.angular/
+dist/
+sample_speeches/
+stakeholder_syn_speeches/
+*.zip
+*.docx
+*.mp4
+LTA Code/
+VICS Code/
+__MACOSX/
