@@ -5,11 +5,10 @@ import { LANGS, Lang } from './i18n';
 
 // Backend URL. Overridden in production by setting window.__API_URL__ in
 // index.html (to the deployed backend); defaults to the local dev server.
-declare global { interface Window { __API_URL__?: string } }
+declare global {
+  interface Window { __API_URL__?: string; grecaptcha?: any }
+}
 const API = window.__API_URL__ || 'http://127.0.0.1:8000';
-
-// Simple front-end gate. Change these to whatever username / password you want.
-const CREDENTIALS = { username: 'admin', password: 'predict2026' };
 
 interface DictTrait { kind: string; value: number; band: string; count?: number;
   high?: number; low?: number; task?: number; group?: number; }
@@ -55,6 +54,7 @@ export class App {
   loginUser = signal('');
   loginPass = signal('');
   loginError = signal('');
+  loginLoading = signal(false);
 
   text = signal('');
   submittedText = signal('');   // snapshot shown on the left once analyzed
@@ -143,6 +143,14 @@ export class App {
   });
 
   constructor() {
+    // Resume an existing session if a token is already stored.
+    if (sessionStorage.getItem('pp_token')) {
+      this.authed.set(true);
+      this.loadInitialData();
+    }
+  }
+
+  private loadInitialData() {
     this.http.get<Meta>(`${API}/meta`).subscribe({
       next: (m) => this.meta.set(m), error: () => {},
     });
@@ -213,22 +221,36 @@ export class App {
   toggleLang() { this.lang.update((l) => (l === 'en' ? 'ar' : 'en')); }
   toggleHelp() { this.showHelp.update((v) => !v); }
 
-  // --- Login --------------------------------------------------------------
+  // --- Login (backend auth + reCAPTCHA) -----------------------------------
   login() {
-    if (this.loginUser().trim() === CREDENTIALS.username &&
-        this.loginPass() === CREDENTIALS.password) {
-      this.authed.set(true);
-      this.loginError.set('');
-      this.loginPass.set('');
-    } else {
-      this.loginError.set(this.t().loginErr);
-    }
+    const captcha = window.grecaptcha?.getResponse?.() ?? '';
+    if (!captcha) { this.loginError.set(this.t().captchaNeeded); return; }
+    this.loginLoading.set(true); this.loginError.set('');
+    this.http.post<{ token: string }>(`${API}/auth/login`, {
+      username: this.loginUser().trim(),
+      password: this.loginPass(),
+      captcha_token: captcha,
+    }).subscribe({
+      next: (r) => {
+        sessionStorage.setItem('pp_token', r.token);
+        this.loginLoading.set(false);
+        this.loginPass.set('');
+        this.authed.set(true);
+        this.loadInitialData();
+      },
+      error: (e) => {
+        this.loginLoading.set(false);
+        window.grecaptcha?.reset?.();
+        this.loginError.set(
+          e?.status === 400 ? this.t().captchaFailed :
+          e?.status === 429 ? this.t().tooMany : this.t().loginErr);
+      },
+    });
   }
 
   logout() {
-    this.authed.set(false);
-    this.loginUser.set('');
-    this.loginPass.set('');
+    sessionStorage.removeItem('pp_token');
+    location.reload();  // fresh login screen (re-renders the captcha cleanly)
   }
 
   async pasteFromClipboard() {
@@ -296,12 +318,16 @@ export class App {
   cancelPdf() { this.pdfPromptOpen.set(false); }
 
   confirmPdf() {
-    if (this.pdfPass() !== CREDENTIALS.password) {
-      this.pdfError.set(this.t().pdfWrongPass);
-      return;
-    }
-    this.pdfPromptOpen.set(false);
-    this.generatePdf();
+    // Re-verify the password server-side (the client no longer holds it).
+    this.pdfError.set('');
+    this.http.post<{ ok: boolean }>(`${API}/auth/verify-password`,
+      { password: this.pdfPass() }).subscribe({
+      next: (r) => {
+        if (r.ok) { this.pdfPromptOpen.set(false); this.generatePdf(); }
+        else { this.pdfError.set(this.t().pdfWrongPass); }
+      },
+      error: () => this.pdfError.set(this.t().pdfWrongPass),
+    });
   }
 
   bandClass(band: string): string {

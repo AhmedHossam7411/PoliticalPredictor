@@ -24,6 +24,7 @@ export interface Bundle {
   // Login gate
   loginTitle: string; loginSub: string; userLabel: string; passLabel: string;
   loginBtn: string; loginErr: string; logout: string;
+  loggingIn: string; captchaNeeded: string; captchaFailed: string; tooMany: string;
   // Split results view + PDF
   yourTextHeading: string; summaryHeading: string; noSummary: string;
   pdfMore: string; summaryWait: string; seePdf: string; leadershipLabel: string;
@@ -83,6 +84,9 @@ const en: Bundle = {
   loginTitle: 'Sign in', loginSub: 'Enter your username and password to use PoliticalPredictor.',
   userLabel: 'Username', passLabel: 'Password',
   loginBtn: 'Sign in', loginErr: 'Wrong username or password.', logout: 'Sign out',
+  loggingIn: 'Signing in…', captchaNeeded: 'Please complete the reCAPTCHA.',
+  captchaFailed: 'reCAPTCHA failed — please try again.',
+  tooMany: 'Too many attempts. Please wait a few minutes.',
   yourTextHeading: 'Your text', summaryHeading: 'Summary',
   noSummary: 'No summary available for this text.',
   pdfMore: 'Open the PDF for the full analysis, including reasons for each score and the politics & strategy indices.',
@@ -192,6 +196,9 @@ const ar: Bundle = {
   loginTitle: 'تسجيل الدخول', loginSub: 'أدخل اسم المستخدم وكلمة المرور لاستخدام PoliticalPredictor.',
   userLabel: 'اسم المستخدم', passLabel: 'كلمة المرور',
   loginBtn: 'دخول', loginErr: 'اسم المستخدم أو كلمة المرور غير صحيحة.', logout: 'تسجيل الخروج',
+  loggingIn: 'جارٍ الدخول…', captchaNeeded: 'يرجى إكمال اختبار reCAPTCHA.',
+  captchaFailed: 'فشل اختبار reCAPTCHA — حاول مرة أخرى.',
+  tooMany: 'محاولات كثيرة جدًا. انتظر بضع دقائق.',
   yourTextHeading: 'النص الذي أدخلته', summaryHeading: 'الملخّص',
   noSummary: 'لا يوجد ملخّص متاح لهذا النص.',
   pdfMore: 'افتح ملف PDF للحصول على التحليل الكامل، بما في ذلك أسباب كل درجة ومؤشّرات السياسة والاستراتيجية.',

@@ -27,8 +27,12 @@
             <input type="password" autocomplete="current-password"
               [ngModel]="loginPass()" (ngModelChange)="loginPass.set($event)" name="pass">
           </label>
+          <!-- reCAPTCHA v2 (test site key; swap for your real key in production) -->
+          <div class="g-recaptcha" data-sitekey="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"></div>
           @if (loginError()) { <p class="error">{{ loginError() }}</p> }
-          <button type="submit" class="wide">{{ t().loginBtn }}</button>
+          <button type="submit" class="wide" [disabled]="loginLoading()">
+            {{ loginLoading() ? t().loggingIn : t().loginBtn }}
+          </button>
         </form>
       </div>
     </div>

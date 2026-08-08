@@ -12,7 +12,7 @@ from __future__ import annotations
 import os
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -22,9 +22,21 @@ from .score import analyze_with_bands, build_norm, default_norm
 from .mock_speeches import MOCK_SPEECHES
 from . import llm
 from . import stakeholders as stk
+from . import auth
 
 app = FastAPI(title="PoliticalPredictor", version="0.1.0",
               summary="LTA + VICS at-a-distance speech scoring")
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    """Baseline hardening headers on every response (OWASP A05 / XSS defense)."""
+    resp = await call_next(request)
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    return resp
 
 # CORS: defaults to "*" for local dev; set ALLOWED_ORIGINS (comma-separated) in
 # production to restrict to your frontend domain(s).
@@ -68,6 +80,16 @@ class NewStakeholder(BaseModel):
     language: str = "en"
 
 
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+    captcha_token: str = Field("", description="Google reCAPTCHA v2 response token")
+
+
+class PasswordCheck(BaseModel):
+    password: str = Field(..., min_length=1)
+
+
 def _norm_for(corpus: list[str] | None):
     return build_norm(corpus) if corpus else default_norm()
 
@@ -77,8 +99,27 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.post("/auth/login")
+def login(req: LoginRequest, request: Request) -> dict:
+    """Verify reCAPTCHA + credentials, then issue a session token."""
+    ip = request.client.host if request.client else "unknown"
+    auth.rate_limit(ip)
+    if not auth.verify_captcha(req.captcha_token, ip):
+        raise HTTPException(status_code=400, detail="captcha")
+    if not auth.verify_password(req.username, req.password):
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    auth.clear_attempts(ip)
+    return {"token": auth.issue_token(req.username), "username": req.username}
+
+
+@app.post("/auth/verify-password")
+def verify_password(body: PasswordCheck, user: str = Depends(auth.require_auth)) -> dict:
+    """Re-confirm the logged-in user's password (used to gate the PDF export)."""
+    return {"ok": auth.verify_password(user, body.password)}
+
+
 @app.get("/meta")
-def meta() -> dict:
+def meta(user: str = Depends(auth.require_auth)) -> dict:
     """Static metadata the UI can use to lay out results."""
     return {
         "lta_traits": list(LTA_TRAITS),
@@ -89,37 +130,37 @@ def meta() -> dict:
 
 
 @app.get("/mock-speeches")
-def mock_speeches() -> dict:
+def mock_speeches(user: str = Depends(auth.require_auth)) -> dict:
     """The labelled synthetic speeches (handy as front-end demo input)."""
     return MOCK_SPEECHES
 
 
 @app.post("/analyze")
-def analyze_endpoint(req: AnalyzeRequest) -> dict:
+def analyze_endpoint(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     norm = _norm_for(req.norming_corpus)
     return analyze_with_bands(req.text, norm)
 
 
 @app.post("/analyze/batch")
-def analyze_batch(req: BatchRequest) -> dict:
+def analyze_batch(req: BatchRequest, user: str = Depends(auth.require_auth)) -> dict:
     norm = _norm_for(req.norming_corpus)
     return {"results": [analyze_with_bands(t, norm) for t in req.texts]}
 
 
 @app.get("/stakeholders")
-def stakeholders_list() -> dict:
+def stakeholders_list(user: str = Depends(auth.require_auth)) -> dict:
     """The stakeholder panel (built-in + user-added) the UI can render."""
     return {"stakeholders": stk.PROFILES_PUBLIC}
 
 
 @app.get("/stakeholders/speeches")
-def stakeholder_speeches() -> dict:
+def stakeholder_speeches(user: str = Depends(auth.require_auth)) -> dict:
     """Baseline speeches on disk, for the 'reuse an existing speech' picker."""
     return {"speeches": stk.list_speeches()}
 
 
 @app.post("/stakeholders")
-def add_stakeholder_endpoint(req: NewStakeholder) -> dict:
+def add_stakeholder_endpoint(req: NewStakeholder, user: str = Depends(auth.require_auth)) -> dict:
     """Add a stakeholder; calibrate it if a baseline speech is provided."""
     try:
         return stk.add_stakeholder(req.model_dump(), language=req.language)
@@ -128,7 +169,7 @@ def add_stakeholder_endpoint(req: NewStakeholder) -> dict:
 
 
 @app.delete("/stakeholders/{sid}")
-def delete_stakeholder_endpoint(sid: str) -> dict:
+def delete_stakeholder_endpoint(sid: str, user: str = Depends(auth.require_auth)) -> dict:
     """Remove a user-added stakeholder (built-ins cannot be deleted)."""
     if not stk.delete_stakeholder(sid):
         raise HTTPException(status_code=404, detail="No such custom stakeholder.")
@@ -136,13 +177,13 @@ def delete_stakeholder_endpoint(sid: str) -> dict:
 
 
 @app.post("/analyze/stakeholders")
-def analyze_stakeholders(req: AnalyzeRequest) -> dict:
+def analyze_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     """Predict how each stakeholder reacts to the speech / policy text."""
     return stk.react(req.text, language=req.language)
 
 
 @app.post("/analyze/llm")
-def analyze_llm(req: AnalyzeRequest) -> dict:
+def analyze_llm(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     """Semantic LTA scoring via Groq (reads meaning, not keywords)."""
     try:
         return llm.score_llm(req.text, language=req.language)

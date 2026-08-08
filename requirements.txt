@@ -3,6 +3,8 @@ fastapi>=0.115
 uvicorn[standard]>=0.30
 # LLM (Groq) calls
 httpx>=0.27
+# Auth: signed session tokens (pure-Python, no native build)
+pyjwt>=2.8
 # Postgres store (only used when DATABASE_URL is set; harmless otherwise)
 psycopg[binary]>=3.2
 
