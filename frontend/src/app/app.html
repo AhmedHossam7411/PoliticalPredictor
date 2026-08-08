@@ -216,7 +216,14 @@
       </section>
 
       <section class="card summary-panel">
-        <h2>{{ t().summaryHeading }}</h2>
+        <h2>
+          {{ t().summaryHeading }}
+          @if (llm()) {
+            <span class="mode-badge ai">✓ {{ t().modeAi }}</span>
+          } @else if (!llmLoading()) {
+            <span class="mode-badge fallback">⚠ {{ t().modeFallback }}</span>
+          }
+        </h2>
 
         @if (llm()?.leadership_style; as style) {
           <p class="style"><strong>{{ t().leadershipLabel }}</strong> {{ style }}</p>

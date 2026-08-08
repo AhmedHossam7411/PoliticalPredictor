@@ -237,7 +237,16 @@ export class App {
     });
   }
 
-  toggleLang() { this.lang.update((l) => (l === 'en' ? 'ar' : 'en')); }
+  toggleLang() {
+    this.lang.update((l) => (l === 'en' ? 'ar' : 'en'));
+    // Re-run the language-dependent analyses so the AI prose (and the PDF) match
+    // the new language — labels alone flipping would leave stale English content.
+    const snap = this.submittedText();
+    if (snap.trim()) {
+      this.runStakeholders(snap);
+      if (this.llm() && this.meta()?.llm_available !== false) this.runLlm(snap);
+    }
+  }
   toggleHelp() { this.showHelp.update((v) => !v); }
 
   // --- Login (backend auth + reCAPTCHA) -----------------------------------
@@ -291,37 +300,38 @@ export class App {
   /** Run every analysis together; skip the AI trait scorer if the server has it off. */
   runBoth() {
     if (!this.text().trim()) return;
-    this.submittedText.set(this.text());
-    this.runDictionary();
-    this.runStakeholders();
-    if (this.meta()?.llm_available !== false) this.runLlm();
+    const snapshot = this.text();
+    this.submittedText.set(snapshot);
+    this.runDictionary(snapshot);
+    this.runStakeholders(snapshot);
+    if (this.meta()?.llm_available !== false) this.runLlm(snapshot);
   }
 
-  runStakeholders() {
-    if (!this.text().trim()) return;
+  runStakeholders(text: string = this.text()) {
+    if (!text.trim()) return;
     this.stanceFilter.set('All');
     this.stakeLoading.set(true); this.error.set('');
     this.http.post<StakeResult>(`${API}/analyze/stakeholders`,
-      { text: this.text(), language: this.lang() }).subscribe({
+      { text, language: this.lang() }).subscribe({
       next: (r) => { this.stake.set(r); this.stakeLoading.set(false); },
       error: (e) => { this.error.set(this.msg(e)); this.stakeLoading.set(false); },
     });
   }
 
-  runDictionary() {
-    if (!this.text().trim()) return;
+  runDictionary(text: string = this.text()) {
+    if (!text.trim()) return;
     this.dictLoading.set(true); this.error.set('');
-    this.http.post<DictResult>(`${API}/analyze`, { text: this.text() }).subscribe({
+    this.http.post<DictResult>(`${API}/analyze`, { text }).subscribe({
       next: (r) => { this.dict.set(r); this.dictLoading.set(false); },
       error: (e) => { this.error.set(this.msg(e)); this.dictLoading.set(false); },
     });
   }
 
-  runLlm() {
-    if (!this.text().trim()) return;
+  runLlm(text: string = this.text()) {
+    if (!text.trim()) return;
     this.llmLoading.set(true); this.error.set('');
     this.http.post<LlmResult>(`${API}/analyze/llm`,
-      { text: this.text(), language: this.lang() }).subscribe({
+      { text, language: this.lang() }).subscribe({
       next: (r) => { this.llm.set(r); this.llmLoading.set(false); },
       error: (e) => { this.error.set(this.msg(e)); this.llmLoading.set(false); },
     });

@@ -167,6 +167,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   font-size: 0.9rem; line-height: 1.6;
 }
 .summary-panel { display: flex; flex-direction: column; }
+.mode-badge { font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-sm); white-space: nowrap; }
+.mode-badge.ai { background: #d6f5e1; color: #15803d; }
+.mode-badge.fallback { background: #fdecc8; color: #92400e; }
 .summary-text { font-size: 1.2rem; line-height: 1.65; margin: 0.5rem 0 1rem; }
 .summary-panel .style { font-size: 1rem; margin: 0.25rem 0 0.5rem; }
 .mini-traits { margin: 0.25rem 0 0.5rem; }

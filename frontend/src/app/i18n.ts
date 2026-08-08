@@ -26,7 +26,7 @@ export interface Bundle {
   loginBtn: string; loginErr: string; logout: string;
   loggingIn: string; captchaNeeded: string; captchaFailed: string; tooMany: string;
   captchaLabel: string; captchaPlaceholder: string; captchaRefresh: string;
-  fallbackNote: string;
+  fallbackNote: string; modeAi: string; modeFallback: string;
   // Split results view + PDF
   yourTextHeading: string; summaryHeading: string; noSummary: string;
   pdfMore: string; summaryWait: string; seePdf: string; leadershipLabel: string;
@@ -92,6 +92,7 @@ const en: Bundle = {
   captchaLabel: 'Type the characters you see',
   captchaPlaceholder: 'Enter the characters', captchaRefresh: 'New image',
   fallbackNote: 'Keyword-based estimate — the AI engine is unavailable, so these reactions are approximate, not the full AI analysis.',
+  modeAi: 'AI analysis', modeFallback: 'Fallback — AI engine off',
   yourTextHeading: 'Your text', summaryHeading: 'Summary',
   noSummary: 'No summary available for this text.',
   pdfMore: 'Open the PDF for the full analysis, including reasons for each score and the politics & strategy indices.',
@@ -207,6 +208,7 @@ const ar: Bundle = {
   captchaLabel: 'اكتب الأحرف التي تراها',
   captchaPlaceholder: 'أدخل الأحرف', captchaRefresh: 'صورة جديدة',
   fallbackNote: 'تقدير قائم على الكلمات المفتاحية — محرّك الذكاء الاصطناعي غير متاح، لذا هذه الردود تقريبية وليست التحليل الكامل بالذكاء الاصطناعي.',
+  modeAi: 'تحليل بالذكاء الاصطناعي', modeFallback: 'تحليل بديل — الذكاء الاصطناعي متوقّف',
   yourTextHeading: 'النص الذي أدخلته', summaryHeading: 'الملخّص',
   noSummary: 'لا يوجد ملخّص متاح لهذا النص.',
   pdfMore: 'افتح ملف PDF للحصول على التحليل الكامل، بما في ذلك أسباب كل درجة ومؤشّرات السياسة والاستراتيجية.',
