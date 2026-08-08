@@ -27,8 +27,18 @@
             <input type="password" autocomplete="current-password"
               [ngModel]="loginPass()" (ngModelChange)="loginPass.set($event)" name="pass">
           </label>
-          <!-- reCAPTCHA v2 (test site key; swap for your real key in production) -->
-          <div class="g-recaptcha" data-sitekey="6LeIxAcTAAAAAJcZVRqyHh71UMIEGNQ_MXjiZKhI"></div>
+          <!-- Self-hosted captcha challenge -->
+          <label class="field">
+            <span>{{ t().captchaLabel }}</span>
+            <div class="captcha-row">
+              <div class="captcha-img" [innerHTML]="captchaSvg()"></div>
+              <button type="button" class="captcha-refresh" (click)="loadCaptcha()"
+                [title]="t().captchaRefresh">↻</button>
+            </div>
+            <input type="text" autocomplete="off" name="captcha"
+              [ngModel]="captchaAnswer()" (ngModelChange)="captchaAnswer.set($event)"
+              [placeholder]="t().captchaPlaceholder">
+          </label>
           @if (loginError()) { <p class="error">{{ loginError() }}</p> }
           <button type="submit" class="wide" [disabled]="loginLoading()">
             {{ loginLoading() ? t().loggingIn : t().loginBtn }}
@@ -260,6 +270,9 @@
         @if (st.calibrated) { <span class="tag groq">{{ t().calibratedTag }}</span> }
       </h2>
       <p class="muted">{{ t().stakeIntro }}</p>
+      @if (st.method === 'heuristic') {
+        <p class="fallback-note">⚠ {{ t().fallbackNote }}</p>
+      }
 
       <!-- Coalition summary -->
       <div class="coalition">

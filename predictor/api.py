@@ -83,7 +83,8 @@ class NewStakeholder(BaseModel):
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
-    captcha_token: str = Field("", description="Google reCAPTCHA v2 response token")
+    captcha_id: str = Field("", description="Self-hosted captcha challenge id")
+    captcha_answer: str = Field("", description="The user's captcha answer")
 
 
 class PasswordCheck(BaseModel):
@@ -99,12 +100,18 @@ def health() -> dict:
     return {"status": "ok"}
 
 
+@app.get("/auth/captcha")
+def captcha() -> dict:
+    """Issue a fresh self-hosted captcha challenge (public)."""
+    return auth.new_captcha()
+
+
 @app.post("/auth/login")
 def login(req: LoginRequest, request: Request) -> dict:
-    """Verify reCAPTCHA + credentials, then issue a session token."""
+    """Verify captcha + credentials, then issue a session token."""
     ip = request.client.host if request.client else "unknown"
     auth.rate_limit(ip)
-    if not auth.verify_captcha(req.captcha_token, ip):
+    if not auth.check_captcha(req.captcha_id, req.captcha_answer):
         raise HTTPException(status_code=400, detail="captcha")
     if not auth.verify_password(req.username, req.password):
         raise HTTPException(status_code=401, detail="Invalid username or password.")

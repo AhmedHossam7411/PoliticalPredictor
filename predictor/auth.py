@@ -4,9 +4,8 @@
   PBKDF2 hash in AUTH_PASSWORD_HASH (preferred for production — never store the
   plaintext password there).
 - Sessions: short-lived signed JWT (HS256) using SESSION_SECRET.
-- reCAPTCHA v2: the token is verified with Google before login can succeed.
-  Defaults to Google's official TEST keys so local dev works out of the box;
-  set RECAPTCHA_SECRET (and the frontend site key) for production.
+- CAPTCHA: a self-hosted distorted-text challenge (SVG) — the answer is kept
+  server-side and consumed on use. No external service or signup required.
 - Brute force: in-memory per-IP rate limit on the login endpoint.
 
 Generate a production password hash:
@@ -17,9 +16,10 @@ from __future__ import annotations
 import hashlib
 import hmac
 import os
+import random
+import secrets
 import time
 
-import httpx
 import jwt
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -31,12 +31,6 @@ AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "")  # pbkdf2_sha256$.
 
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "dev-insecure-change-me")
 TOKEN_TTL_SECONDS = int(os.environ.get("TOKEN_TTL_SECONDS", "28800"))  # 8 hours
-
-# Google's official reCAPTCHA v2 TEST secret — always verifies successfully.
-# Override with your real secret in production (frontend uses the matching site key).
-RECAPTCHA_SECRET = os.environ.get(
-    "RECAPTCHA_SECRET", "6LeIxAcTAAAAAGG-vFI1TnRWxMZNFuojJ4WifJWe")
-_RECAPTCHA_URL = "https://www.google.com/recaptcha/api/siteverify"
 
 _MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "8"))
 _WINDOW = int(os.environ.get("LOGIN_WINDOW_SECONDS", "300"))  # 5 minutes
@@ -94,19 +88,57 @@ def require_auth(cred: HTTPAuthorizationCredentials | None = Depends(_bearer)) -
     return str(payload.get("sub", ""))
 
 
-# --- reCAPTCHA v2 -----------------------------------------------------------
-def verify_captcha(token: str, remote_ip: str | None = None) -> bool:
-    if not token:
+# --- Self-hosted CAPTCHA (no external service) ------------------------------
+# Distorted-text challenge rendered as SVG; the answer is kept server-side and
+# consumed on use. Ambiguous characters are excluded.
+_CAPTCHA_CHARS = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_CAPTCHA_TTL = 300  # seconds
+_CAPTCHAS: dict[str, tuple[str, float]] = {}
+
+
+def _captcha_svg(code: str) -> str:
+    w, h = 170, 60
+    parts = [f'<rect width="{w}" height="{h}" fill="#eef2f8"/>']
+    for _ in range(5):  # noise lines
+        parts.append(
+            f'<line x1="{random.randint(0, w)}" y1="{random.randint(0, h)}" '
+            f'x2="{random.randint(0, w)}" y2="{random.randint(0, h)}" '
+            f'stroke="#94a3b8" stroke-width="1" opacity="0.5"/>')
+    x = 20
+    palette = ["#1d4ed8", "#0e7490", "#7c3aed", "#b45309", "#15803d"]
+    for ch in code:
+        rot = random.randint(-28, 28)
+        y = random.randint(36, 44)
+        parts.append(
+            f'<text x="{x}" y="{y}" font-size="32" font-family="monospace" '
+            f'font-weight="700" fill="{random.choice(palette)}" '
+            f'transform="rotate({rot} {x} {y})">{ch}</text>')
+        x += 28
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{h}" '
+            f'viewBox="0 0 {w} {h}" role="img" aria-label="captcha">'
+            + "".join(parts) + "</svg>")
+
+
+def new_captcha() -> dict:
+    """Create a challenge; returns its id + inline SVG for the login form."""
+    now = time.time()
+    for k, (_, exp) in list(_CAPTCHAS.items()):  # opportunistic cleanup
+        if exp < now:
+            _CAPTCHAS.pop(k, None)
+    code = "".join(random.choice(_CAPTCHA_CHARS) for _ in range(5))
+    cid = secrets.token_urlsafe(16)
+    _CAPTCHAS[cid] = (code, now + _CAPTCHA_TTL)
+    return {"id": cid, "svg": _captcha_svg(code)}
+
+
+def check_captcha(captcha_id: str, answer: str) -> bool:
+    entry = _CAPTCHAS.pop(captcha_id or "", None)  # single-use
+    if not entry:
         return False
-    data = {"secret": RECAPTCHA_SECRET, "response": token}
-    if remote_ip:
-        data["remoteip"] = remote_ip
-    try:
-        resp = httpx.post(_RECAPTCHA_URL, data=data, timeout=10)
-        resp.raise_for_status()
-        return bool(resp.json().get("success"))
-    except httpx.HTTPError:
+    code, exp = entry
+    if time.time() > exp:
         return False
+    return (answer or "").strip().upper() == code
 
 
 # --- Login brute-force rate limit (in-memory, per IP) -----------------------

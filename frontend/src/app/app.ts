@@ -1,12 +1,13 @@
 import { Component, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LANGS, Lang } from './i18n';
 
 // Backend URL. Overridden in production by setting window.__API_URL__ in
 // index.html (to the deployed backend); defaults to the local dev server.
 declare global {
-  interface Window { __API_URL__?: string; grecaptcha?: any }
+  interface Window { __API_URL__?: string }
 }
 const API = window.__API_URL__ || 'http://127.0.0.1:8000';
 
@@ -40,6 +41,10 @@ interface SpeechOpt { id: string; label: string; }
 })
 export class App {
   private http = inject(HttpClient);
+  private sanitizer = inject(DomSanitizer);
+  captchaSvg = signal<SafeHtml | null>(null);
+  captchaId = signal('');
+  captchaAnswer = signal('');
 
   readonly traits = ['BACE', 'PWR', 'CC', 'SC', 'TASK', 'DIS', 'IGB'];
 
@@ -147,7 +152,21 @@ export class App {
     if (sessionStorage.getItem('pp_token')) {
       this.authed.set(true);
       this.loadInitialData();
+    } else {
+      this.loadCaptcha();
     }
+  }
+
+  /** Fetch a fresh self-hosted captcha challenge for the login form. */
+  loadCaptcha() {
+    this.captchaAnswer.set('');
+    this.http.get<{ id: string; svg: string }>(`${API}/auth/captcha`).subscribe({
+      next: (c) => {
+        this.captchaId.set(c.id);
+        this.captchaSvg.set(this.sanitizer.bypassSecurityTrustHtml(c.svg));
+      },
+      error: () => {},
+    });
   }
 
   private loadInitialData() {
@@ -223,13 +242,13 @@ export class App {
 
   // --- Login (backend auth + reCAPTCHA) -----------------------------------
   login() {
-    const captcha = window.grecaptcha?.getResponse?.() ?? '';
-    if (!captcha) { this.loginError.set(this.t().captchaNeeded); return; }
+    if (!this.captchaAnswer().trim()) { this.loginError.set(this.t().captchaNeeded); return; }
     this.loginLoading.set(true); this.loginError.set('');
     this.http.post<{ token: string }>(`${API}/auth/login`, {
       username: this.loginUser().trim(),
       password: this.loginPass(),
-      captcha_token: captcha,
+      captcha_id: this.captchaId(),
+      captcha_answer: this.captchaAnswer(),
     }).subscribe({
       next: (r) => {
         sessionStorage.setItem('pp_token', r.token);
@@ -240,7 +259,7 @@ export class App {
       },
       error: (e) => {
         this.loginLoading.set(false);
-        window.grecaptcha?.reset?.();
+        this.loadCaptcha();   // challenge is single-use — issue a fresh one
         this.loginError.set(
           e?.status === 400 ? this.t().captchaFailed :
           e?.status === 429 ? this.t().tooMany : this.t().loginErr);
