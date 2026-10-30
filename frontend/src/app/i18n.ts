@@ -38,6 +38,8 @@ export interface Bundle {
   stakeHeading: string; stakeIntro: string; stakeWait: string; calibratedTag: string;
   likelyResponse: string; confidenceLabel: string;
   filterAll: string; coalitionLabel: string;
+  // Detected input language / dialect
+  inputLangLabel: string; inputLangs: Record<string, string>; vicsEnglishOnly: string;
   // Add-stakeholder panel
   navAnalyze: string; navGuide: string;
   panelHeading: string; addStakeholder: string;
@@ -111,6 +113,10 @@ const en: Bundle = {
   calibratedTag: 'calibrated on baseline speeches',
   likelyResponse: 'Likely response:', confidenceLabel: 'confidence',
   filterAll: 'All', coalitionLabel: 'Coalition:',
+  inputLangLabel: 'Detected text language:',
+  inputLangs: { en: 'English', msa: 'Arabic — Modern Standard (Fusha)',
+    egyptian: 'Arabic — Egyptian colloquial', mixed: 'Arabic — mixed Fusha / Egyptian' },
+  vicsEnglishOnly: 'The politics (VICS) indices use English word lists, so they are not computed for Arabic text.',
   navAnalyze: 'Analyze', navGuide: 'Guide',
   panelHeading: 'Stakeholder panel', addStakeholder: 'Add stakeholder',
   fldName: 'Name', fldRole: 'Role / title', fldValues: 'Values', fldSupports: 'Usually supports',
@@ -227,6 +233,10 @@ const ar: Bundle = {
   calibratedTag: 'مُعايَر على الخطابات المرجعية',
   likelyResponse: 'الاستجابة المرجّحة:', confidenceLabel: 'مستوى الثقة',
   filterAll: 'الكل', coalitionLabel: 'الاصطفاف:',
+  inputLangLabel: 'لغة النص المكتشفة:',
+  inputLangs: { en: 'الإنجليزية', msa: 'العربية — الفصحى',
+    egyptian: 'العربية — العامية المصرية', mixed: 'العربية — مزيج من الفصحى والعامية المصرية' },
+  vicsEnglishOnly: 'مؤشرات السياسة (VICS) تعتمد على قوائم كلمات إنجليزية، لذلك لا تُحسب للنصوص العربية.',
   navAnalyze: 'التحليل', navGuide: 'الدليل',
   panelHeading: 'لوحة أصحاب المصلحة', addStakeholder: 'إضافة صاحب مصلحة',
   fldName: 'الاسم', fldRole: 'الدور / المنصب', fldValues: 'القيم', fldSupports: 'يؤيّد عادةً',

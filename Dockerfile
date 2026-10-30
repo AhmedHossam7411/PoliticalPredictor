@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Only the backend needs to ship (the frontend is hosted on Vercel).
 COPY predictor ./predictor
 COPY baseline_speeches ./baseline_speeches
+# Arabic mock speeches = the Arabic norming corpus for the dictionary scorer.
+COPY sample_speeches_ar ./sample_speeches_ar
 
 # Most hosts inject $PORT (Koyeb, Cloud Run). Hugging Face Spaces uses 7860.
 ENV PORT=7860

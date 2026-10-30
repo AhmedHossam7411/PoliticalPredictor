@@ -1,0 +1,16 @@
+# Self-confidence: first-person singular words (closed class).
+أنا
+انا
+إنني
+إني
+لي
+ليا
+بي
+نفسي
+بنفسي
+عندي
+شخصيا
+معي
+معايا
+مني
+بتاعي

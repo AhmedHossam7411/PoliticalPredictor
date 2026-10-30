@@ -108,7 +108,7 @@
       <button class="ghost" (click)="clearText()">{{ t().clearBtn }}</button>
     </div>
 
-    <textarea
+    <textarea dir="auto"
       [ngModel]="text()" (ngModelChange)="text.set($event)"
       rows="11" [placeholder]="t().placeholder"></textarea>
 
@@ -175,7 +175,7 @@
                   (change)="speechMode.set('none')"> {{ t().speechNone }}</label>
               </div>
               @if (speechMode() === 'new') {
-                <textarea rows="6" [ngModel]="nsSpeechText()"
+                <textarea dir="auto" rows="6" [ngModel]="nsSpeechText()"
                   (ngModelChange)="nsSpeechText.set($event)" [placeholder]="t().placeholder"></textarea>
               } @else if (speechMode() === 'existing') {
                 <select [ngModel]="nsSpeechFrom()" (ngModelChange)="nsSpeechFrom.set($event)">
@@ -212,7 +212,10 @@
     <div class="split">
       <section class="card text-panel">
         <h2>{{ t().yourTextHeading }}</h2>
-        <div class="submitted">{{ submittedText() }}</div>
+        @if (inputLang()) {
+          <p class="input-lang">{{ t().inputLangLabel }} <span class="lang-badge">{{ inputLang() }}</span></p>
+        }
+        <div class="submitted" dir="auto">{{ submittedText() }}</div>
       </section>
 
       <section class="card summary-panel">

@@ -15,6 +15,8 @@ import os
 
 import httpx
 
+from . import arabic
+
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 DEFAULT_MODEL = "openai/gpt-oss-120b"
 
@@ -61,6 +63,25 @@ def _language_instruction(language: str) -> str:
     )
 
 
+def input_note(text: str) -> tuple[dict, str]:
+    """Detect the speech's language/dialect; return it and a prompt note.
+
+    The note tells the model what it is reading and that colloquial Egyptian is
+    a register, not a signal about the speaker's traits.
+    """
+    detected = arabic.detect(text)
+    if detected["language"] != "ar":
+        return detected, ""
+    return detected, (
+        "\n\nThe speech is in Arabic -- detected as "
+        f"{arabic.DIALECT_NAMES[detected['dialect']]} (a heuristic estimate). "
+        "Read it in the original; do not translate first. Judge it on the same "
+        "terms you would an English speech. Colloquial Egyptian phrasing is a "
+        "register choice: do not read it as lower complexity, weaker task "
+        "focus, or less confidence on its own."
+    )
+
+
 class LLMNotConfigured(RuntimeError):
     """Raised when GROQ_API_KEY is missing."""
 
@@ -80,13 +101,15 @@ def score_llm(text: str, model: str | None = None, timeout: float = 60.0,
     if not api_key:
         raise LLMNotConfigured("GROQ_API_KEY environment variable is not set.")
     model = model or os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
+    detected, note = input_note(text)
 
     payload = {
         "model": model,
         "temperature": 0.2,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT + _language_instruction(language)},
+            {"role": "system",
+             "content": _SYSTEM_PROMPT + note + _language_instruction(language)},
             {"role": "user", "content": f"Score this speech:\n\n{text}"},
         ],
     }
@@ -98,6 +121,7 @@ def score_llm(text: str, model: str | None = None, timeout: float = 60.0,
     data["model"] = model
     data["method"] = "llm"
     data["language"] = language
+    data["input"] = detected
     return data
 
 

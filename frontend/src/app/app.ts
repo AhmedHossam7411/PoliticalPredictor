@@ -13,14 +13,16 @@ const API = window.__API_URL__ || 'http://127.0.0.1:8000';
 
 interface DictTrait { kind: string; value: number; band: string; count?: number;
   high?: number; low?: number; task?: number; group?: number; }
+interface InputInfo { language: 'en' | 'ar'; dialect: 'msa' | 'egyptian' | 'mixed' | null; }
 interface DictResult {
+  input?: InputInfo; vics_supported?: boolean;
   lta: { tokens: number; traits: Record<string, DictTrait> };
   vics: Record<string, { label: string; value?: number }>;
 }
 interface LlmTrait { score: number; band: string; rationale: string; }
 interface LlmResult {
   traits: Record<string, LlmTrait>;
-  leadership_style?: string; summary?: string; model?: string;
+  leadership_style?: string; summary?: string; model?: string; input?: InputInfo;
 }
 interface Meta { lta_traits: string[]; vics_indices: string[];
   norming_corpus_default: string[]; llm_available: boolean; }
@@ -93,6 +95,13 @@ export class App {
   anyLoading = computed(() =>
     this.dictLoading() || this.llmLoading() || this.stakeLoading());
   analyzed = computed(() => !!this.dict() || !!this.llm() || !!this.stake());
+
+  /** Detected language of the analyzed text (e.g. "Arabic — Egyptian colloquial"). */
+  inputLang = computed(() => {
+    const info = this.dict()?.input ?? this.llm()?.input;
+    if (!info) return '';
+    return this.t().inputLangs[info.language === 'ar' ? info.dialect ?? 'msa' : 'en'];
+  });
 
   // Stakeholder stance filter + counts
   readonly stanceOrder = ['Support', 'Oppose', 'Mixed', 'Neutral'];
@@ -418,7 +427,8 @@ export class App {
         <h3>${this.esc(b.personalityHeading)}</h3>
         <table>${traitRows}</table>
         <h3>${this.esc(b.politicsHeading)}</h3>
-        <table>${vicsRows}</table>`;
+        ${d.vics_supported === false
+          ? `<p>${this.esc(b.vicsEnglishOnly)}</p>` : `<table>${vicsRows}</table>`}`;
     }
 
     let ai = '';
@@ -469,7 +479,8 @@ export class App {
       </style></head><body>
       <h1>${this.esc(b.pdfDocTitle)}</h1>
       <h2>${this.esc(b.pdfInputHeading)}</h2>
-      <div class="quote">${this.esc(this.submittedText())}</div>
+      ${this.inputLang() ? `<p>${this.esc(b.inputLangLabel)} ${this.esc(this.inputLang())}</p>` : ''}
+      <div class="quote" dir="auto">${this.esc(this.submittedText())}</div>
       ${word}
       ${ai}
       ${stake}

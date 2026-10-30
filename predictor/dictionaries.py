@@ -18,6 +18,9 @@ VICS_DIR = os.path.join(ROOT, "VICS Code", "VICS Code")
 # Curated LTA lexicons (from "list of words LTA.pdf") — the current source.
 LTA_LEXICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "lexicons", "lta")
+# Arabic counterparts (Modern Standard + Egyptian forms), same file names.
+LTA_LEXICON_AR_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                  "lexicons", "lta_ar")
 
 # Lines whose presence means the line is RTF structure, not content.
 _RTF_STRUCTURE_TOKENS = (
@@ -54,13 +57,16 @@ def load_rtf_wordlist(path: str) -> set[str]:
 
 
 def load_txt_wordlist(path: str) -> set[str]:
-    """Parse a plain-text word list (VICS) into a set of lower-cased phrases."""
+    """Parse a plain-text word list (VICS) into a set of lower-cased phrases.
+
+    Lines starting with '#' are comments.
+    """
     words: set[str] = set()
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as fh:
             for line in fh:
                 phrase = _clean_phrase(line)
-                if phrase:
+                if phrase and not phrase.startswith("#"):
                     words.add(phrase)
     except FileNotFoundError:
         print(f"Warning: word list not found - {path}")
@@ -87,6 +93,15 @@ def lta_dictionaries() -> dict[str, set[str]]:
     """Load all LTA trait dictionaries from the curated lexicons. Cached."""
     return {
         name: load_txt_wordlist(os.path.join(LTA_LEXICON_DIR, fname))
+        for name, fname in _LEXICON_FILES.items()
+    }
+
+
+@lru_cache(maxsize=1)
+def lta_dictionaries_ar() -> dict[str, set[str]]:
+    """Arabic LTA trait dictionaries (matched clitic-aware by predictor.arabic)."""
+    return {
+        name: load_txt_wordlist(os.path.join(LTA_LEXICON_AR_DIR, fname))
         for name, fname in _LEXICON_FILES.items()
     }
 

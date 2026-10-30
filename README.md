@@ -36,6 +36,22 @@ npx ng serve                           # http://localhost:4200
 Open http://localhost:4200, paste a speech (or pick a sample), and hit
 **Analyze — Dictionary** and/or **Analyze — LLM (Groq)**.
 
+## Arabic input
+
+Paste Arabic text — Modern Standard (فصحى) or Egyptian colloquial (عامية مصرية) — and
+it is scored like English. The detected language/dialect is shown above your text.
+
+- **Dictionary scorer:** Arabic LTA word lists in `predictor/lexicons/lta_ar/`, matched
+  with clitic-aware rules (`predictor/arabic.py`: و/ف/ب/ل/ال، Egyptian هـ/حـ future,
+  pronoun suffixes…). Bands are normed against Arabic samples, not English ones.
+  VICS is English-only and is skipped for Arabic.
+- **LLM scorer + stakeholders:** told the language and dialect, and scored on the
+  same scale as English.
+- **Samples:** `sample_speeches_ar/` has each labelled mock speech in Fusha (`_msa`)
+  and Egyptian (`_egy`). Check ordering against their labels with
+  `python -m predictor.score`.
+- The Arabic word lists are a first draft — have an Arabic-speaking analyst review them.
+
 ## Status
 
 - Engine, both scorers, and API: working and live-tested.

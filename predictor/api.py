@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 
 from .lta import TRAITS as LTA_TRAITS
 from .vics import score_vics
-from .score import analyze_with_bands, build_norm, default_norm
+from .score import analyze_with_bands, build_norm
 from .mock_speeches import MOCK_SPEECHES
 from . import llm
 from . import stakeholders as stk
@@ -92,7 +92,8 @@ class PasswordCheck(BaseModel):
 
 
 def _norm_for(corpus: list[str] | None):
-    return build_norm(corpus) if corpus else default_norm()
+    # None lets analyze_with_bands pick the default norm for the text's language.
+    return build_norm(corpus) if corpus else None
 
 
 @app.get("/health")

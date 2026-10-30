@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from .llm import GROQ_URL, DEFAULT_MODEL, _LANG_NAMES, LLMNotConfigured, available
+from .llm import GROQ_URL, DEFAULT_MODEL, _LANG_NAMES, LLMNotConfigured, available, input_note
 from . import store as _storage
 
 # Built-in decision profiles + baseline speeches are bundled, read-only files
@@ -455,7 +455,8 @@ def llm_react(text: str, language: str = "en", timeout: float = 60.0) -> dict:
         "temperature": 0.3,
         "response_format": {"type": "json_object"},
         "messages": [
-            {"role": "system", "content": _SYSTEM_PROMPT + _language_instruction(language)},
+            {"role": "system",
+             "content": _SYSTEM_PROMPT + input_note(text)[1] + _language_instruction(language)},
             {"role": "user", "content": user},
         ],
     }

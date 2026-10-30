@@ -13,10 +13,16 @@ part-of-speech filters that follow Hermann's coding intent:
 
 Two traits are true ratios; the rest are densities (per 1000 tokens), with
 High/Moderate/Low assigned later relative to a norming group.
+
+Arabic text (Modern Standard or Egyptian) is scored the same way against the
+Arabic lexicons, with clitic-aware matching from predictor.arabic instead of
+spaCy (no POS filters). Arabic densities are not comparable with English ones,
+so Arabic texts must be normed against an Arabic corpus.
 """
 from __future__ import annotations
 
-from .dictionaries import lta_dictionaries
+from . import arabic
+from .dictionaries import lta_dictionaries, lta_dictionaries_ar
 from .nlp import count_lemma, count_surface, content_token_count
 
 TRAITS = ("BACE", "PWR", "CC", "SC", "TASK", "DIS", "IGB")
@@ -45,11 +51,24 @@ def _pos_for(trait: str) -> frozenset | None:
     return _POS.get(trait) if USE_POS else None
 
 
-def score_lta(text: str) -> dict:
-    """Return raw LTA metrics for one text (lemma + POS based)."""
-    d = lta_dictionaries()
+def _counters(language: str):
+    """(dictionaries, term counter, pronoun counter, token counter) for a language."""
+    if language == "ar":
+        return (lta_dictionaries_ar(),
+                lambda text, words, _pos=None: arabic.count_terms(text, words),
+                arabic.count_pronouns, arabic.token_count)
+    return lta_dictionaries(), count_lemma, count_surface, content_token_count
+
+
+def score_lta(text: str, language: str | None = None) -> dict:
+    """Return raw LTA metrics for one text (English: lemma + POS; Arabic: clitic-aware).
+
+    `language` is "en" or "ar"; detected from the script when omitted.
+    """
+    language = language or ("ar" if arabic.is_arabic(text) else "en")
+    d, count_lemma, count_surface, content_token_count = _counters(language)
     tokens = content_token_count(text) or 1
-    out: dict = {"tokens": tokens, "traits": {}}
+    out: dict = {"tokens": tokens, "language": language, "traits": {}}
 
     def density(count: int) -> float:
         return 1000.0 * count / tokens

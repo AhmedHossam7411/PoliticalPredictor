@@ -170,6 +170,9 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .mode-badge { font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.6rem;
   border-radius: var(--radius-sm); white-space: nowrap; }
 .mode-badge.ai { background: #d6f5e1; color: #15803d; }
+.input-lang { margin: 0 0 0.5rem; font-size: 0.85rem; color: #555; }
+.lang-badge { display: inline-block; font-weight: 700; padding: 0.15rem 0.55rem;
+  border-radius: 999px; background: #e0e7ff; color: #3730a3; }
 .mode-badge.fallback { background: #fdecc8; color: #92400e; }
 .summary-text { font-size: 1.2rem; line-height: 1.65; margin: 0.5rem 0 1rem; }
 .summary-panel .style { font-size: 1rem; margin: 0.25rem 0 0.5rem; }
