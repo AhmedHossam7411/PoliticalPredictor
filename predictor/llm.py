@@ -6,7 +6,7 @@ Returns the same seven traits on a 0-100 scale plus a short rationale each.
 
 Requires the GROQ_API_KEY environment variable. Uses Groq's OpenAI-compatible
 chat API via httpx (no extra dependency). Model via GROQ_MODEL (default
-llama-3.3-70b-versatile).
+openai/gpt-oss-120b; llama-3.3-70b-versatile was retired by Groq).
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import os
 import httpx
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-DEFAULT_MODEL = "llama-3.3-70b-versatile"
+DEFAULT_MODEL = "openai/gpt-oss-120b"
 
 TRAITS = ("BACE", "PWR", "CC", "SC", "TASK", "DIS", "IGB")
 
