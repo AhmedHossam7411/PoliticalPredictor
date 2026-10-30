@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import httpx
 
@@ -90,6 +91,57 @@ def available() -> bool:
     return bool(os.environ.get("GROQ_API_KEY"))
 
 
+# Groq's free tier caps tokens per minute *per model* (8k each). The trait
+# scorer and the stakeholder call (~7k tokens) fire together, so a 429 is
+# routine; other models have their own quotas and are tried first.
+FALLBACK_MODELS = [m.strip() for m in os.environ.get(
+    "GROQ_FALLBACK_MODELS", "openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",") if m.strip()]
+
+
+def _retry_after(resp: httpx.Response) -> float:
+    try:
+        return float(resp.headers.get("retry-after", 10))
+    except ValueError:
+        return 10.0
+
+
+def chat_json(messages: list[dict], temperature: float, model: str | None = None,
+              timeout: float = 60.0, reasoning_effort: str | None = None,
+              max_wait: float = 20.0) -> tuple[dict, str]:
+    """POST a JSON-mode chat to Groq; return (parsed content, model actually used).
+
+    On a rate limit (429): try each of FALLBACK_MODELS, then wait out the
+    primary's retry-after once (if <= max_wait seconds) and try it again.
+    """
+    api_key = os.environ.get("GROQ_API_KEY")
+    if not api_key:
+        raise LLMNotConfigured("GROQ_API_KEY environment variable is not set.")
+    primary = model or os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
+    plan = [primary] + [m for m in FALLBACK_MODELS if m != primary] + [primary]
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    wait: float | None = None  # set only if the primary was rate-limited
+    error: Exception | None = None
+    for i, m in enumerate(plan):
+        if i == len(plan) - 1:  # final retry of the primary, after its cooldown
+            if wait is None or wait > max_wait:
+                break
+            time.sleep(wait)
+        payload = {"model": m, "temperature": temperature,
+                   "response_format": {"type": "json_object"}, "messages": messages}
+        if reasoning_effort and m.startswith("openai/gpt-oss"):
+            payload["reasoning_effort"] = reasoning_effort
+        try:
+            resp = httpx.post(GROQ_URL, json=payload, headers=headers, timeout=timeout)
+            if resp.status_code == 429 and i == 0:
+                wait = _retry_after(resp)
+            resp.raise_for_status()
+            return json.loads(resp.json()["choices"][0]["message"]["content"]), m
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError) as exc:
+            error = exc  # rate limit, retired model, bad JSON: try the next one
+    raise error
+
+
 def score_llm(text: str, model: str | None = None, timeout: float = 60.0,
               language: str = "en") -> dict:
     """Rate the seven LTA traits semantically via Groq. Returns parsed JSON.
@@ -97,27 +149,12 @@ def score_llm(text: str, model: str | None = None, timeout: float = 60.0,
     `language` controls the prose fields (rationale/summary/leadership_style);
     scores, keys and bands stay English.
     """
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise LLMNotConfigured("GROQ_API_KEY environment variable is not set.")
-    model = model or os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
     detected, note = input_note(text)
-
-    payload = {
-        "model": model,
-        "temperature": 0.2,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system",
-             "content": _SYSTEM_PROMPT + note + _language_instruction(language)},
-            {"role": "user", "content": f"Score this speech:\n\n{text}"},
-        ],
-    }
-    headers = {"Authorization": f"Bearer {api_key}"}
-    resp = httpx.post(GROQ_URL, json=payload, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    content = resp.json()["choices"][0]["message"]["content"]
-    data = json.loads(content)
+    data, model = chat_json([
+        {"role": "system",
+         "content": _SYSTEM_PROMPT + note + _language_instruction(language)},
+        {"role": "user", "content": f"Score this speech:\n\n{text}"},
+    ], temperature=0.2, model=model, timeout=timeout)
     data["model"] = model
     data["method"] = "llm"
     data["language"] = language

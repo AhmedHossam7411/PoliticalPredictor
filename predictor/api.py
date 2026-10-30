@@ -9,6 +9,7 @@ detail as it wants, and so later scoring-science work has everything exposed.
 """
 from __future__ import annotations
 
+import json
 import os
 
 import httpx
@@ -199,3 +200,5 @@ def analyze_llm(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> 
         raise HTTPException(status_code=503, detail=str(exc))
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"LLM provider error: {exc}")
+    except (json.JSONDecodeError, KeyError) as exc:
+        raise HTTPException(status_code=502, detail=f"LLM returned malformed output: {exc}")

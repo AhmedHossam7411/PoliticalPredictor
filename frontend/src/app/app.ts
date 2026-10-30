@@ -29,7 +29,7 @@ interface Meta { lta_traits: string[]; vics_indices: string[];
 interface Reaction { id: string; name: string; role: string; stance: string;
   confidence: number; reasoning: string; response: string; }
 interface StakeResult { reactions: Reaction[]; method: string; model?: string;
-  calibrated?: boolean; }
+  calibrated?: boolean; fallback_reason?: string; }
 interface PublicStakeholder { id: string; name: string; role: string; scope?: string;
   personality?: string; values: string[]; supports: string[]; opposes: string[];
   concerns: string[]; custom: boolean; }

@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from .llm import GROQ_URL, DEFAULT_MODEL, _LANG_NAMES, LLMNotConfigured, available, input_note
+from .llm import _LANG_NAMES, LLMNotConfigured, available, input_note, chat_json
 from . import store as _storage
 
 # Built-in decision profiles + baseline speeches are bundled, read-only files
@@ -443,27 +443,15 @@ def _language_instruction(language: str) -> str:
 
 
 def llm_react(text: str, language: str = "en", timeout: float = 60.0) -> dict:
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise LLMNotConfigured("GROQ_API_KEY environment variable is not set.")
-    model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
-
     user = (f"Stakeholders:\n{_profiles_for_prompt()}\n\n"
             f"Speech / policy text:\n\n{text}")
-    payload = {
-        "model": model,
-        "temperature": 0.3,
-        "response_format": {"type": "json_object"},
-        "messages": [
-            {"role": "system",
-             "content": _SYSTEM_PROMPT + input_note(text)[1] + _language_instruction(language)},
-            {"role": "user", "content": user},
-        ],
-    }
-    headers = {"Authorization": f"Bearer {api_key}"}
-    resp = httpx.post(GROQ_URL, json=payload, headers=headers, timeout=timeout)
-    resp.raise_for_status()
-    data = json.loads(resp.json()["choices"][0]["message"]["content"])
+    # Low reasoning effort: this prompt is ~5.5k tokens, and gpt-oss's hidden
+    # reasoning otherwise pushes the call near the free tier's 8k/minute cap.
+    data, model = chat_json([
+        {"role": "system",
+         "content": _SYSTEM_PROMPT + input_note(text)[1] + _language_instruction(language)},
+        {"role": "user", "content": user},
+    ], temperature=0.3, timeout=timeout, reasoning_effort="low", max_wait=60.0)
 
     # Merge model output with the canonical name/role so the UI always has them.
     by_id = {s["id"]: s for s in STAKEHOLDERS}
@@ -495,9 +483,18 @@ def llm_react(text: str, language: str = "en", timeout: float = 60.0) -> dict:
 
 def react(text: str, language: str = "en") -> dict:
     """Predict stakeholder reactions, LLM if configured else heuristic."""
+    reason = "GROQ_API_KEY is not set."
     if available():
         try:
             return llm_react(text, language=language)
-        except (httpx.HTTPError, LLMNotConfigured, json.JSONDecodeError):
-            pass  # fall back rather than fail the request
-    return heuristic_react(text)
+        except (httpx.HTTPError, LLMNotConfigured, json.JSONDecodeError,
+                KeyError, TypeError, ValueError) as exc:
+            # Fall back rather than fail the request -- but say why.
+            reason = ("Groq rate limit reached (HTTP 429)" if
+                      isinstance(exc, httpx.HTTPStatusError)
+                      and exc.response.status_code == 429
+                      else f"{type(exc).__name__}: {exc}")[:300]
+            print(f"[stakeholders] AI reactions failed, using keyword fallback: {reason}")
+    result = heuristic_react(text)
+    result["fallback_reason"] = reason
+    return result
