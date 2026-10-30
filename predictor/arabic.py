@@ -7,7 +7,9 @@ word matching would miss almost everything. This module provides:
   * detect(text)        -- English vs Arabic, and for Arabic a Modern Standard
                            vs Egyptian colloquial estimate from marker words;
   * normalize(text)     -- strip diacritics/tatweel, unify alef/ya/ta-marbuta
-                           and hamza carriers, so spelling variants compare equal;
+                           and hamza seats (ء ؤ ئ -> ء), so spelling variants
+                           compare equal (Egyptian ي-for-hamza spellings such
+                           as خاين / نتايج are listed separately in the lexicons);
   * count_terms(...)    -- lexicon hits where each token may match after peeling
                            common prefixes (و ف ب ل ك س ال، Egyptian ح/ه future,
                            imperfect ي ت ن ا) and suffixes (pronoun clitics,
@@ -30,7 +32,8 @@ _TOKEN = re.compile(r"[ء-ي]+")
 
 _CHAR_MAP = str.maketrans({
     "أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا",
-    "ى": "ي", "ئ": "ي", "ؤ": "و", "ة": "ه",
+    # Hamza seats collapse to ء so أعداء / أعدائنا / أعداؤنا share a stem.
+    "ى": "ي", "ئ": "ء", "ؤ": "ء", "ة": "ه",
     "ک": "ك", "ی": "ي", "ـ": "",
 })
 
@@ -203,9 +206,11 @@ def detect(text: str) -> dict:
     eg, msa = _marker_tokens(toks)
     n_eg, n_msa = len(eg), len(msa)
     share = n_eg / (n_eg + n_msa) if (n_eg + n_msa) else 0.0
+    # Egyptian markers are denser per sentence than MSA ones, so "egyptian"
+    # needs a clear majority; a half-and-half speech lands around 0.7.
     if n_eg + n_msa < 3 or share < 0.3:
         dialect = "msa"
-    elif share >= 0.6:
+    elif share >= 0.8:
         dialect = "egyptian"
     else:
         dialect = "mixed"
