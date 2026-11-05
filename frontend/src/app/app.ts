@@ -12,7 +12,10 @@ declare global {
 const API = window.__API_URL__ || 'http://127.0.0.1:8000';
 
 interface DictTrait { kind: string; value: number; band: string; count?: number;
-  high?: number; low?: number; task?: number; group?: number; }
+  high?: number; low?: number; task?: number; group?: number;
+  // Evidence weighting: band uses `adjusted`; confidence = how much text backs it.
+  adjusted?: number; raw_band?: string; confidence?: 'low' | 'medium' | 'high';
+  percent?: number; }
 interface InputInfo { language: 'en' | 'ar'; dialect: 'msa' | 'egyptian' | 'mixed' | null; }
 interface DictResult {
   input?: InputInfo; vics_supported?: boolean;
@@ -153,6 +156,8 @@ export class App {
     const parts: string[] = [];
     if (highs.length) parts.push(`${b.higher} ${highs.map(name).join(', ')}.`);
     if (lows.length) parts.push(`${b.lower} ${lows.map(name).join(', ')}.`);
+    const task = d.lta.traits['TASK']?.band;
+    if (task && task !== 'Balanced') parts.push(`${name('TASK')}: ${this.bandLabel(task)}.`);
     return parts.join(' ');
   });
 
@@ -384,9 +389,16 @@ export class App {
     return this.t().stances[stance] ?? stance;
   }
 
-  /** Display value for a dictionary trait: ratio as %, density as raw. */
-  dictValue(tr: DictTrait): string {
-    return tr.kind === 'ratio' ? (tr.value * 100).toFixed(0) + '%' : tr.value.toFixed(1);
+  /** A dictionary trait's figure: the two lists' split, or the list words' share of the text. */
+  dictValue(trait: string, tr: DictTrait): string {
+    const b = this.t();
+    const p = tr.percent ?? 0;
+    if (tr.kind !== 'ratio') return `${p.toFixed(1)}% ${b.ofWords}`;
+    if (!((tr.high ?? 0) + (tr.low ?? 0) + (tr.task ?? 0) + (tr.group ?? 0))) return b.noListWords;
+    const [first, second] = trait === 'TASK'
+      ? [b.bands['Problem-solving'], b.bands['Relationship-building']]
+      : [b.bands['High'], b.bands['Low']];
+    return `${p.toFixed(0)}% ${first} / ${(100 - p).toFixed(0)}% ${second}`;
   }
 
   /** Open a printable window with the full analysis; the browser's print
@@ -418,14 +430,18 @@ export class App {
     if (d) {
       const traitRows = this.traits.map((tr) => {
         const tt = d.lta.traits[tr];
+        const conf = tt.confidence
+          ? `${this.esc(b.confidenceLevels[tt.confidence])} ${this.esc(b.confidenceLabel)}` : '';
         return `<tr><td>${this.esc(b.traitNames[tr])} (${tr})</td>
-          <td>${this.esc(this.bandLabel(tt.band))}</td></tr>`;
+          <td>${this.esc(this.bandLabel(tt.band))}</td>
+          <td>${this.esc(this.dictValue(tr, tt))}</td><td>${conf}</td></tr>`;
       }).join('');
       const vicsRows = this.vicsList().map((v) =>
         `<tr><td>${this.esc(v.code)}</td><td>${v.value.toFixed(2)}</td></tr>`).join('');
       word = `<h2>${this.esc(b.pdfWordHeading)}</h2>
         <h3>${this.esc(b.personalityHeading)}</h3>
         <table>${traitRows}</table>
+        <p>${this.esc(b.wordConfNote)}</p>
         <h3>${this.esc(b.politicsHeading)}</h3>
         ${d.vics_supported === false
           ? `<p>${this.esc(b.vicsEnglishOnly)}</p>` : `<table>${vicsRows}</table>`}`;

@@ -41,6 +41,8 @@ export interface Bundle {
   // Detected input language / dialect
   inputLangLabel: string; inputLangs: Record<string, string>; vicsEnglishOnly: string;
   retryAi: string;
+  // Word scorer: how much text supports each trait band
+  confidenceLevels: Record<string, string>; wordConfNote: string; ofWords: string; noListWords: string;
   // Add-stakeholder panel
   navAnalyze: string; navGuide: string;
   panelHeading: string; addStakeholder: string;
@@ -115,6 +117,9 @@ const en: Bundle = {
   likelyResponse: 'Likely response:', confidenceLabel: 'confidence',
   filterAll: 'All', coalitionLabel: 'Coalition:',
   inputLangLabel: 'Detected text language:', retryAi: 'Try AI again',
+  confidenceLevels: { low: 'low', medium: 'medium', high: 'high' },
+  wordConfNote: 'Conceptual complexity, self-confidence and task focus compare two word lists: the list with the larger share decides. The other traits are the share of the text found on their list, weighted by length so short texts are pulled toward Moderate. Confidence shows how much text supports each result.',
+  ofWords: 'of words', noListWords: 'no list words found',
   inputLangs: { en: 'English', msa: 'Arabic — Modern Standard (Fusha)',
     egyptian: 'Arabic — Egyptian colloquial', mixed: 'Arabic — mixed Fusha / Egyptian' },
   vicsEnglishOnly: 'The politics (VICS) indices use English word lists, so they are not computed for Arabic text.',
@@ -129,7 +134,8 @@ const en: Bundle = {
   addedOk: 'Stakeholder added.', addedCalibrated: 'Calibrated from the speech.',
   nameRequired: 'Please enter a name.', removeStakeholder: 'Remove',
   stances: { Support: 'Support', Oppose: 'Oppose', Mixed: 'Mixed', Neutral: 'Neutral' },
-  bands: { High: 'High', Moderate: 'Moderate', Low: 'Low' },
+  bands: { High: 'High', Moderate: 'Moderate', Low: 'Low',
+    'Problem-solving': 'Problem-solving', 'Relationship-building': 'Relationship-building', Balanced: 'Balanced' },
   traitNames: {
     BACE: 'Belief in Ability to Control Events', PWR: 'Need for Power',
     CC: 'Conceptual Complexity', SC: 'Self-Confidence', TASK: 'Task Focus',
@@ -235,6 +241,9 @@ const ar: Bundle = {
   likelyResponse: 'الاستجابة المرجّحة:', confidenceLabel: 'مستوى الثقة',
   filterAll: 'الكل', coalitionLabel: 'الاصطفاف:',
   inputLangLabel: 'لغة النص المكتشفة:', retryAi: 'أعد المحاولة بالذكاء الاصطناعي',
+  confidenceLevels: { low: 'منخفض', medium: 'متوسط', high: 'مرتفع' },
+  wordConfNote: 'يقارن التعقيد المفاهيمي والثقة بالنفس والتركيز على المهمّة بين قائمتَي كلمات: القائمة ذات النسبة الأكبر هي التي تحدّد النتيجة. أما بقية السمات فهي نسبة كلمات النص الموجودة في قائمتها، مرجّحةً بالطول بحيث تُقرَّب النصوص القصيرة نحو المستوى المتوسط. ويبيّن مستوى الثقة مقدار النص الذي يدعم كل نتيجة.',
+  ofWords: 'من الكلمات', noListWords: 'لم يُعثر على كلمات من القوائم',
   inputLangs: { en: 'الإنجليزية', msa: 'العربية — الفصحى',
     egyptian: 'العربية — العامية المصرية', mixed: 'العربية — مزيج من الفصحى والعامية المصرية' },
   vicsEnglishOnly: 'مؤشرات السياسة (VICS) تعتمد على قوائم كلمات إنجليزية، لذلك لا تُحسب للنصوص العربية.',
@@ -249,7 +258,8 @@ const ar: Bundle = {
   addedOk: 'تمت إضافة صاحب المصلحة.', addedCalibrated: 'تمت المعايرة من الخطاب.',
   nameRequired: 'يرجى إدخال الاسم.', removeStakeholder: 'إزالة',
   stances: { Support: 'مؤيّد', Oppose: 'معارض', Mixed: 'متباين', Neutral: 'محايد' },
-  bands: { High: 'عالٍ', Moderate: 'متوسط', Low: 'منخفض' },
+  bands: { High: 'عالٍ', Moderate: 'متوسط', Low: 'منخفض',
+    'Problem-solving': 'حل المشكلات', 'Relationship-building': 'بناء العلاقات', Balanced: 'متوازن' },
   traitNames: {
     BACE: 'الاعتقاد بالقدرة على التحكّم في الأحداث', PWR: 'الحاجة إلى السلطة',
     CC: 'التعقيد المفاهيمي', SC: 'الثقة بالنفس', TASK: 'التركيز على المهمّة',

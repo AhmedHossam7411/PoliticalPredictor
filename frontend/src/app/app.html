@@ -252,6 +252,10 @@
                   <span class="score">{{ l.traits[tr].score }}/100</span>
                 } @else if (dict(); as d) {
                   <span class="band" [class]="bandClass(d.lta.traits[tr].band)">{{ bandLabel(d.lta.traits[tr].band) }}</span>
+                  <span class="score">{{ dictValue(tr, d.lta.traits[tr]) }}</span>
+                  @if (d.lta.traits[tr].confidence; as c) {
+                    <span class="score">{{ t().confidenceLevels[c] }} {{ t().confidenceLabel }}</span>
+                  }
                 }
               </div>
             }

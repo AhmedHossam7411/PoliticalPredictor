@@ -1,0 +1,8 @@
+# Files that run inside Linux containers or on a Linux server must keep LF
+# line endings, even when checked out or bundled on Windows.
+*.sh                text eol=lf
+Dockerfile          text eol=lf
+.dockerignore       text eol=lf
+deploy/**           text eol=lf
+frontend/Dockerfile text eol=lf
+frontend/nginx.conf text eol=lf

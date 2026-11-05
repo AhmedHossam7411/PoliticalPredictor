@@ -5,7 +5,7 @@ fixed panel of stakeholders is likely to react: a stance (Support / Oppose /
 Mixed / Neutral), a confidence, short reasoning, and their likely response.
 
 Two engines:
-  * LLM (Groq) when GROQ_API_KEY is set -- reads meaning, best quality.
+  * LLM when an AI provider is configured (see llm.py) -- reads meaning, best quality.
   * A transparent keyword heuristic otherwise -- matches the speech against each
     stakeholder's declared supports/opposes so the feature still works offline.
 """
@@ -18,7 +18,8 @@ from pathlib import Path
 
 import httpx
 
-from .llm import _LANG_NAMES, LLMNotConfigured, available, input_note, chat_json
+from .llm import (_LANG_NAMES, LLMNotConfigured, available, input_note, chat_json,
+                  not_configured_reason)
 from . import store as _storage
 
 # Built-in decision profiles + baseline speeches are bundled, read-only files
@@ -442,7 +443,7 @@ def _language_instruction(language: str) -> str:
     )
 
 
-def llm_react(text: str, language: str = "en", timeout: float = 60.0) -> dict:
+def llm_react(text: str, language: str = "en", timeout: float | None = None) -> dict:
     user = (f"Stakeholders:\n{_profiles_for_prompt()}\n\n"
             f"Speech / policy text:\n\n{text}")
     # Low reasoning effort: this prompt is ~5.5k tokens, and gpt-oss's hidden
@@ -483,14 +484,14 @@ def llm_react(text: str, language: str = "en", timeout: float = 60.0) -> dict:
 
 def react(text: str, language: str = "en") -> dict:
     """Predict stakeholder reactions, LLM if configured else heuristic."""
-    reason = "GROQ_API_KEY is not set."
+    reason = not_configured_reason()
     if available():
         try:
             return llm_react(text, language=language)
         except (httpx.HTTPError, LLMNotConfigured, json.JSONDecodeError,
                 KeyError, TypeError, ValueError) as exc:
             # Fall back rather than fail the request -- but say why.
-            reason = ("Groq rate limit reached (HTTP 429)" if
+            reason = ("AI provider rate limit reached (HTTP 429)" if
                       isinstance(exc, httpx.HTTPStatusError)
                       and exc.response.status_code == 429
                       else f"{type(exc).__name__}: {exc}")[:300]

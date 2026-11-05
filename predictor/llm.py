@@ -4,9 +4,11 @@ The dictionary scorer only sees vocabulary; this reads *meaning*, so it rates a
 speech that is "high power" in tone even when it uses no literal power words.
 Returns the same seven traits on a 0-100 scale plus a short rationale each.
 
-Requires the GROQ_API_KEY environment variable. Uses Groq's OpenAI-compatible
-chat API via httpx (no extra dependency). Model via GROQ_MODEL (default
-openai/gpt-oss-120b; llama-3.3-70b-versatile was retired by Groq).
+Talks to any OpenAI-compatible chat API via httpx (no extra dependency).
+Default is Groq (needs GROQ_API_KEY). To use another provider or a self-hosted
+model (Ollama, vLLM, Azure OpenAI...), set LLM_BASE_URL (e.g.
+http://ollama:11434/v1), LLM_API_KEY if it needs one, and LLM_MODEL.
+Model default openai/gpt-oss-120b (llama-3.3-70b-versatile was retired by Groq).
 """
 from __future__ import annotations
 
@@ -18,8 +20,21 @@ import httpx
 
 from . import arabic
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+BASE_URL = (os.environ.get("LLM_BASE_URL") or GROQ_BASE_URL).rstrip("/")
+CHAT_URL = BASE_URL + "/chat/completions"
+IS_GROQ = BASE_URL == GROQ_BASE_URL
 DEFAULT_MODEL = "openai/gpt-oss-120b"
+# Self-hosted models can be slow; raise this for CPU-only servers.
+TIMEOUT = float(os.environ.get("LLM_TIMEOUT") or 60)
+
+
+def _api_key() -> str | None:
+    return os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY")
+
+
+def _model() -> str:
+    return os.environ.get("LLM_MODEL") or os.environ.get("GROQ_MODEL") or DEFAULT_MODEL
 
 TRAITS = ("BACE", "PWR", "CC", "SC", "TASK", "DIS", "IGB")
 
@@ -83,19 +98,38 @@ def input_note(text: str) -> tuple[dict, str]:
     )
 
 
+def _length_note(text: str) -> str:
+    """Weigh the evidence like the dictionary scorer does: short text, scores near 50."""
+    words = len(text.split())
+    return (
+        f"\n\nThe speech is {words} words long. Score on the strength of the "
+        "evidence: a short text shows little, so keep scores near 50 unless a "
+        "trait appears clearly and repeatedly; a long text with consistent "
+        "signals can earn extreme scores. A single strong sentence is not a "
+        "profile."
+    )
+
+
 class LLMNotConfigured(RuntimeError):
-    """Raised when GROQ_API_KEY is missing."""
+    """Raised when no AI provider is configured."""
 
 
 def available() -> bool:
-    return bool(os.environ.get("GROQ_API_KEY"))
+    # Groq always needs a key; a self-hosted server (LLM_BASE_URL) may not.
+    return bool(_api_key()) or not IS_GROQ
+
+
+def not_configured_reason() -> str:
+    return "No AI provider configured (set GROQ_API_KEY, or LLM_BASE_URL for a self-hosted model)."
 
 
 # Groq's free tier caps tokens per minute *per model* (8k each). The trait
 # scorer and the stakeholder call (~7k tokens) fire together, so a 429 is
-# routine; other models have their own quotas and are tried first.
-FALLBACK_MODELS = [m.strip() for m in os.environ.get(
-    "GROQ_FALLBACK_MODELS", "openai/gpt-oss-20b,qwen/qwen3.8-27b").split(",") if m.strip()]
+# routine; other models have their own quotas and are tried first. These are
+# Groq model names, so other providers default to no fallbacks.
+FALLBACK_MODELS = [m.strip() for m in (
+    os.environ.get("LLM_FALLBACK_MODELS") or os.environ.get("GROQ_FALLBACK_MODELS")
+    or ("openai/gpt-oss-20b,qwen/qwen3.8-27b" if IS_GROQ else "")).split(",") if m.strip()]
 
 
 def _retry_after(resp: httpx.Response) -> float:
@@ -106,20 +140,21 @@ def _retry_after(resp: httpx.Response) -> float:
 
 
 def chat_json(messages: list[dict], temperature: float, model: str | None = None,
-              timeout: float = 60.0, reasoning_effort: str | None = None,
+              timeout: float | None = None, reasoning_effort: str | None = None,
               max_wait: float = 20.0) -> tuple[dict, str]:
-    """POST a JSON-mode chat to Groq; return (parsed content, model actually used).
+    """POST a JSON-mode chat; return (parsed content, model actually used).
 
     On a rate limit (429): try each of FALLBACK_MODELS, then wait out the
     primary's retry-after once (if <= max_wait seconds) and try it again.
     """
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise LLMNotConfigured("GROQ_API_KEY environment variable is not set.")
-    primary = model or os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
+    if not available():
+        raise LLMNotConfigured(not_configured_reason())
+    api_key = _api_key()
+    timeout = timeout or TIMEOUT
+    primary = model or _model()
     plan = [primary] + [m for m in FALLBACK_MODELS if m != primary] + [primary]
 
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     wait: float | None = None  # set only if the primary was rate-limited
     error: Exception | None = None
     for i, m in enumerate(plan):
@@ -132,7 +167,7 @@ def chat_json(messages: list[dict], temperature: float, model: str | None = None
         if reasoning_effort and m.startswith("openai/gpt-oss"):
             payload["reasoning_effort"] = reasoning_effort
         try:
-            resp = httpx.post(GROQ_URL, json=payload, headers=headers, timeout=timeout)
+            resp = httpx.post(CHAT_URL, json=payload, headers=headers, timeout=timeout)
             if resp.status_code == 429 and i == 0:
                 wait = _retry_after(resp)
             resp.raise_for_status()
@@ -142,9 +177,9 @@ def chat_json(messages: list[dict], temperature: float, model: str | None = None
     raise error
 
 
-def score_llm(text: str, model: str | None = None, timeout: float = 60.0,
+def score_llm(text: str, model: str | None = None, timeout: float | None = None,
               language: str = "en") -> dict:
-    """Rate the seven LTA traits semantically via Groq. Returns parsed JSON.
+    """Rate the seven LTA traits semantically via the LLM. Returns parsed JSON.
 
     `language` controls the prose fields (rationale/summary/leadership_style);
     scores, keys and bands stay English.
@@ -152,7 +187,7 @@ def score_llm(text: str, model: str | None = None, timeout: float = 60.0,
     detected, note = input_note(text)
     data, model = chat_json([
         {"role": "system",
-         "content": _SYSTEM_PROMPT + note + _language_instruction(language)},
+         "content": _SYSTEM_PROMPT + note + _length_note(text) + _language_instruction(language)},
         {"role": "user", "content": f"Score this speech:\n\n{text}"},
     ], temperature=0.2, model=model, timeout=timeout)
     data["model"] = model

@@ -1,0 +1,73 @@
+# PoliticalPredictor: the whole system on one machine.
+#   docker compose up -d --build                     # Groq / external AI provider
+#   docker compose --profile local-ai up -d --build  # + AI model running on this machine
+# Settings come from .env (copy .env.example). See INSTALL.md.
+name: politicalpredictor
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: politicalpredictor-api:${VERSION:-latest}
+    env_file: .env
+    environment:
+      PORT: "8000"
+      REQUIRE_SECRETS: "1"
+      DATABASE_URL: ${DATABASE_URL:-postgresql://predictor:${POSTGRES_PASSWORD}@db:5432/predictor}
+      # Only nginx can reach this container, so trust its X-Forwarded-For
+      # (keeps the per-IP login limit per user instead of global).
+      FORWARDED_ALLOW_IPS: "*"
+      # Browser and API share one address via nginx, so no cross-origin access.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+    restart: unless-stopped
+
+  web:
+    build: ../frontend
+    image: politicalpredictor-web:${VERSION:-latest}
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: predictor
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: predictor
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U predictor -d predictor"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # Optional: run the AI model on this machine (no data leaves it).
+  # Enable with --profile local-ai and set LLM_BASE_URL=http://ollama:11434/v1.
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["local-ai"]
+    environment:
+      # The stakeholder prompt is ~7k tokens; Ollama's default context is
+      # smaller and would silently cut it off.
+      OLLAMA_CONTEXT_LENGTH: "16384"
+      OLLAMA_KEEP_ALIVE: "24h"
+    volumes:
+      - ollama:/root/.ollama
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  ollama:

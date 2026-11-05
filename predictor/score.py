@@ -1,11 +1,13 @@
 """Integrated scoring: LTA traits + VICS indices, with norming and validation.
 
 `analyze(text)` returns a JSON-friendly dict combining both methodologies.
-LTA High/Moderate/Low labels are assigned *relative to a norming corpus*
+BACE, PWR, DIS and IGB get High/Moderate/Low *relative to a norming corpus*
 (Hermann's rule: >1 SD above the mean = High, <1 SD below = Low), defaulting
 to the mock speeches -- the English ones for English text, their Arabic
-(Modern Standard + Egyptian) renderings for Arabic text. VICS word lists are
-English-only, so VICS is skipped for Arabic input.
+(Modern Standard + Egyptian) renderings for Arabic text. CC, SC and TASK set two
+lists against each other, so whichever has the larger share of the hits decides:
+High or Low, and for TASK a category. VICS word lists are English-only, so VICS
+is skipped for Arabic input.
 """
 from __future__ import annotations
 
@@ -63,14 +65,70 @@ def band(value: float, mean: float, std: float) -> str:
     return "Moderate"
 
 
+# (first list ahead, second list ahead, neither ahead or no hits)
+_RATIO_OUTCOMES = {"CC": ("High", "Low", "Moderate"), "SC": ("High", "Low", "Moderate"),
+                   "TASK": ("Problem-solving", "Relationship-building", "Balanced")}
+
+
+def ratio_band(trait: str, share: float) -> str:
+    """Outcome of a two-list trait from the first list's share of the hits."""
+    first, second, tie = _RATIO_OUTCOMES[trait]
+    return first if share > 0.5 else second if share < 0.5 else tie
+
+
+# --------------------------------------------------------------------------- #
+# Evidence weighting: short texts are weak evidence, so pull them toward average
+# --------------------------------------------------------------------------- #
+# A raw rate from 100 words (4 power words = 40/1k) is as extreme as one from
+# 1000 words, but far less reliable. Each value is blended with the norm mean
+# as if the text came with this much extra "average" material (a Bayesian
+# posterior mean): long texts keep their own rate, short ones move toward 50%.
+# Two-list traits blend toward an even split instead; that can't change which
+# list is ahead, so thin evidence shows in their value and confidence, not band.
+PRIOR_TOKENS = 300  # density traits: words of average text added
+PRIOR_HITS = 10     # ratio traits (CC, TASK): marker words of average mix added
+
+
+def weigh(tr: dict, tokens: int, mean: float) -> tuple[float, float]:
+    """(evidence-weighted value, weight of the text's own evidence 0..1)."""
+    if tr["kind"] == "ratio":
+        hits, n = (tr["high"], tr["high"] + tr["low"]) if "high" in tr \
+            else (tr["task"], tr["task"] + tr["group"])
+        return (hits + PRIOR_HITS * 0.5) / (n + PRIOR_HITS), n / (n + PRIOR_HITS)
+    return ((1000.0 * tr["count"] + PRIOR_TOKENS * mean) / (tokens + PRIOR_TOKENS),
+            tokens / (tokens + PRIOR_TOKENS))
+
+
+def confidence(weight: float) -> str:
+    # Density: ~200 words -> medium, ~600 -> high. Ratio: ~7 hits -> medium, 20 -> high.
+    return "high" if weight >= 2 / 3 else "medium" if weight >= 0.4 else "low"
+
+
 def analyze_with_bands(text: str, norm: dict | None = None) -> dict:
-    """analyze() plus a High/Moderate/Low label per LTA trait."""
+    """analyze() plus an evidence-weighted value and High/Moderate/Low band per trait.
+
+    `value` stays the raw rate (and `raw_band` its band); on density traits
+    `band` uses the weighted value, so short texts need a strong, repeated signal
+    to be extreme. `percent` is the figure to show: the list words' share of the
+    text (density traits) or the first list's share of the hits (two-list traits).
+    """
     result = analyze(text)
     if norm is None:
         norm = default_norm(result["input"]["language"])
+    tokens = result["lta"]["tokens"]
     for t in LTA_TRAITS:
         tr = result["lta"]["traits"][t]
-        tr["band"] = band(tr["value"], norm[t]["mean"], norm[t]["std"])
+        mean, std = norm[t]["mean"], norm[t]["std"]
+        tr["adjusted"], tr["weight"] = weigh(tr, tokens, mean)
+        tr["confidence"] = confidence(tr["weight"])
+        if tr["kind"] == "ratio":
+            tr["percent"] = 100.0 * tr["value"]
+            tr["raw_band"] = tr["band"] = ratio_band(t, tr["value"])
+        else:
+            tr["percent"] = tr["value"] / 10.0
+            tr["raw_band"] = band(tr["value"], mean, std)
+            tr["band"] = band(tr["adjusted"], mean, std)
+    result["lta"]["weighting"] = {"prior_tokens": PRIOR_TOKENS, "prior_hits": PRIOR_HITS}
     return result
 
 
@@ -139,7 +197,8 @@ def format_report(text: str, norm: dict | None = None) -> str:
     for t in LTA_TRAITS:
         tr = r["lta"]["traits"][t]
         unit = "" if tr["kind"] == "ratio" else " /1k"
-        lines.append(f"  {t:5} {tr['value']:7.3f}{unit:4}  {tr['band']}")
+        lines.append(f"  {t:5} {tr['value']:7.3f}{unit:4} -> weighted {tr['adjusted']:7.3f}"
+                     f"  {tr['band']:8} ({tr['confidence']} confidence)")
     lines.append("\nVICS operational code:")
     for code, res in r["vics"].items():
         if "value" in res:

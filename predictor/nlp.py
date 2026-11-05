@@ -59,10 +59,24 @@ def compile_phrases(phrases: frozenset[str]) -> tuple[dict, tuple]:
         lemmas = tuple(t.lemma_.lower() for t in pipe(phrase)
                        if not t.is_punct and not t.is_space)
         if len(lemmas) == 1:
+            # Also keep the listed form: in a sentence "assured" can lemmatize to
+            # itself (adjective) although alone it lemmatizes to "assure".
             single[lemmas[0]] = phrase
+            single.setdefault(phrase, phrase)
         elif len(lemmas) > 1:
             multi.append((lemmas, phrase))
     return single, tuple(multi)
+
+
+def single_hit(surface: str, lemma: str, pos: str, single: dict) -> str | None:
+    """The list entry this token counts for, or None.
+
+    Proper nouns never count: "May", "US" and "United States" aren't the list's
+    "may", "us" and "united".
+    """
+    if pos == "PROPN":
+        return None
+    return single.get(lemma) or single.get(surface)
 
 
 def count_lemma(text: str, phrases: frozenset[str],
@@ -78,8 +92,8 @@ def count_lemma(text: str, phrases: frozenset[str],
     hits: dict[str, int] = {}
     total = 0
     for i, lem in enumerate(lemmas):
-        if lem in single and (allowed_pos is None or pos[i] in allowed_pos):
-            p = single[lem]
+        p = single_hit(surfaces[i], lem, pos[i], single)
+        if p and (allowed_pos is None or pos[i] in allowed_pos):
             hits[p] = hits.get(p, 0) + 1
             total += 1
     n = len(lemmas)
@@ -89,16 +103,4 @@ def count_lemma(text: str, phrases: frozenset[str],
             if lemmas[i:i + L] == lemtup:
                 hits[p] = hits.get(p, 0) + 1
                 total += 1
-    return total, hits
-
-
-def count_surface(text: str, words: frozenset[str]) -> tuple[int, dict[str, int]]:
-    """Count by surface form (for closed-class pronoun lists like SC)."""
-    surfaces, _lemmas, _pos = doc_tokens(text)
-    hits: dict[str, int] = {}
-    total = 0
-    for s in surfaces:
-        if s in words:
-            hits[s] = hits.get(s, 0) + 1
-            total += 1
     return total, hits

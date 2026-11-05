@@ -13,4 +13,9 @@ stakeholder_syn_speeches/
 *.mp4
 LTA Code/
 VICS Code/
+# ...except the VICS word lists the scorer reads at runtime.
+!VICS Code/VICS Code/QI/
+!VICS Code/VICS Code/QP/
 __MACOSX/
+# Kit settings (secrets) and bundles never go into the build context.
+deploy/

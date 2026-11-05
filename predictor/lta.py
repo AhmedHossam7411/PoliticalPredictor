@@ -3,16 +3,17 @@
 Seven traits: BACE, PWR, CC, SC, TASK, DIS, IGB.
 
 Matching is lemma-based (so "possibilities" matches "possibility") with
-part-of-speech filters that follow Hermann's coding intent:
+optional part-of-speech filters that follow Hermann's coding intent:
     BACE, PWR -> verbs only (agency / influence as action)
     TASK      -> nouns only  (work/goal nouns; this also splits the heavy
                               BACE/TASK list overlap: "to plan" vs "a plan")
     DIS       -> nouns + adjectives (threats and suspicious descriptors)
-    SC        -> surface pronouns (closed class)
-    CC, IGB   -> any POS (markers/identity terms span several classes)
+    CC, SC, IGB -> any POS (markers span several classes)
 
-Two traits are true ratios; the rest are densities (per 1000 tokens), with
-High/Moderate/Low assigned later relative to a norming group.
+CC, SC and TASK set two lists against each other: the value is the first list's
+share of the hits (60% high + 40% low CC = high CC; TASK: problem-solving vs
+relationship). BACE, PWR, DIS and IGB are one list each, as a density (per 1000
+tokens), with High/Moderate/Low assigned later relative to a norming group.
 
 Arabic text (Modern Standard or Egyptian) is scored the same way against the
 Arabic lexicons, with clitic-aware matching from predictor.arabic instead of
@@ -23,11 +24,11 @@ from __future__ import annotations
 
 from . import arabic
 from .dictionaries import lta_dictionaries, lta_dictionaries_ar
-from .nlp import count_lemma, count_surface, content_token_count
+from .nlp import count_lemma, content_token_count
 
 TRAITS = ("BACE", "PWR", "CC", "SC", "TASK", "DIS", "IGB")
-RATIO_TRAITS = ("CC", "TASK")
-DENSITY_TRAITS = ("BACE", "PWR", "SC", "DIS", "IGB")
+RATIO_TRAITS = ("CC", "SC", "TASK")
+DENSITY_TRAITS = ("BACE", "PWR", "DIS", "IGB")
 
 # Per-trait POS filter for single-word lemma matches (None = any POS).
 # POS filtering is Hermann-faithful but, on the available synthetic data, it
@@ -52,12 +53,12 @@ def _pos_for(trait: str) -> frozenset | None:
 
 
 def _counters(language: str):
-    """(dictionaries, term counter, pronoun counter, token counter) for a language."""
+    """(dictionaries, term counter, token counter) for a language."""
     if language == "ar":
         return (lta_dictionaries_ar(),
                 lambda text, words, _pos=None: arabic.count_terms(text, words),
-                arabic.count_pronouns, arabic.token_count)
-    return lta_dictionaries(), count_lemma, count_surface, content_token_count
+                arabic.token_count)
+    return lta_dictionaries(), count_lemma, content_token_count
 
 
 def score_lta(text: str, language: str | None = None) -> dict:
@@ -66,24 +67,25 @@ def score_lta(text: str, language: str | None = None) -> dict:
     `language` is "en" or "ar"; detected from the script when omitted.
     """
     language = language or ("ar" if arabic.is_arabic(text) else "en")
-    d, count_lemma, count_surface, content_token_count = _counters(language)
+    d, count_lemma, content_token_count = _counters(language)
     tokens = content_token_count(text) or 1
     out: dict = {"tokens": tokens, "language": language, "traits": {}}
 
     def density(count: int) -> float:
         return 1000.0 * count / tokens
 
-    # --- Conceptual Complexity: high vs low markers (ratio, any POS).
-    high_n, high_hits = count_lemma(text, _fs(d["CC_high"]))
-    low_n, low_hits = count_lemma(text, _fs(d["CC_low"]))
-    cc_total = high_n + low_n
-    out["traits"]["CC"] = {
-        "kind": "ratio", "high": high_n, "low": low_n,
-        "value": (high_n / cc_total) if cc_total else 0.5,
-        "matches": {"high": high_hits, "low": low_hits},
-    }
+    # --- Conceptual complexity, self-confidence: high vs low lists (ratio, any POS).
+    for trait in ("CC", "SC"):
+        high_n, high_hits = count_lemma(text, _fs(d[f"{trait}_high"]))
+        low_n, low_hits = count_lemma(text, _fs(d[f"{trait}_low"]))
+        total = high_n + low_n
+        out["traits"][trait] = {
+            "kind": "ratio", "high": high_n, "low": low_n,
+            "value": (high_n / total) if total else 0.5,
+            "matches": {"high": high_hits, "low": low_hits},
+        }
 
-    # --- Task focus: task nouns vs group-maintenance words (ratio).
+    # --- Task focus: problem-solving vs relationship words (ratio).
     task_n, task_hits = count_lemma(text, _fs(d["TASK"]), _pos_for("TASK"))
     grp_n, grp_hits = count_lemma(text, _fs(d["TASK_group"]))
     task_total = task_n + grp_n
@@ -93,12 +95,7 @@ def score_lta(text: str, language: str | None = None) -> dict:
         "matches": {"task": task_hits, "group": grp_hits},
     }
 
-    # --- Self-confidence: surface pronouns (density).
-    sc_n, sc_hits = count_surface(text, _fs(d["SC"]))
-    out["traits"]["SC"] = {"kind": "density", "count": sc_n,
-                           "value": density(sc_n), "matches": sc_hits}
-
-    # --- Remaining density traits (verbs for BACE/PWR, noun/adj for DIS, any IGB).
+    # --- Density traits (verbs for BACE/PWR, noun/adj for DIS, any IGB).
     for trait in ("BACE", "PWR", "DIS", "IGB"):
         n, hits = count_lemma(text, _fs(d[trait]), _pos_for(trait))
         out["traits"][trait] = {"kind": "density", "count": n,

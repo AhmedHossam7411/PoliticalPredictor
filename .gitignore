@@ -18,3 +18,9 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
+# Self-hosted kit: real settings and the export bundle
+deploy/.env
+deploy/dist/
+
+# Speech Lab test runs (local results)
+tools/speech_lab/results/

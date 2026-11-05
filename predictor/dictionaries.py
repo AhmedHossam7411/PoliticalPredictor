@@ -15,7 +15,7 @@ from functools import lru_cache
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LTA_DIR = os.path.join(ROOT, "LTA Code", "LTA Code")            # legacy RTF lists
 VICS_DIR = os.path.join(ROOT, "VICS Code", "VICS Code")
-# Curated LTA lexicons (from "list of words LTA.pdf") — the current source.
+# Curated LTA lexicons (the numbered 01-07 word-list PDFs) — the current source.
 LTA_LEXICON_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                "lexicons", "lta")
 # Arabic counterparts (Modern Standard + Egyptian forms), same file names.
@@ -79,7 +79,8 @@ _LEXICON_FILES = {
     "PWR": "PWR.txt",
     "CC_high": "CC_high.txt",
     "CC_low": "CC_low.txt",
-    "SC": "SC.txt",
+    "SC_high": "SC_high.txt",
+    "SC_low": "SC_low.txt",
     "DIS": "DIS.txt",
     "IGB": "IGB.txt",
     "TASK": "TASK.txt",

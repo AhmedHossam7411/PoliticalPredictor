@@ -10,11 +10,11 @@ methodologies and returns structured, JSON-friendly results:
 
 | File | Role |
 |---|---|
-| `lexicons/lta/*.txt` | Curated LTA word lists (from `list of words LTA.pdf`) — the current dictionaries |
+| `lexicons/lta/*.txt` | Curated LTA word lists (from the numbered 01–07 word-list PDFs) — the current dictionaries |
 | `dictionaries.py` | Loads the curated lexicons (and legacy `.rtf` lists for comparison) |
-| `nlp.py` | spaCy lemmatization + POS; lemma/surface matching |
+| `nlp.py` | spaCy lemmatization + POS; lemma matching |
 | `text_utils.py` | Regex tokenizing + phrase-aware surface matching (used by VICS) |
-| `lta.py` | 7-trait scorer (CC/TASK = ratios; others = density /1k tokens) |
+| `lta.py` | 7-trait scorer (CC, SC, TASK = two lists against each other; others = density /1k tokens) |
 | `vics.py` | All operational-code indices, consolidated from the 12 original scripts |
 | `score.py` | Integrated report + norming (High/Mod/Low vs a corpus) + validation |
 | `mock_speeches.py` | 5 labelled synthetic speeches used as norming corpus + test cases |
@@ -104,5 +104,4 @@ literal power word. So the dictionary scorer:
 3. Bands are **relative** to the norming corpus — for absolute High/Low, norm
    against a broad, neutral leader set, not just war speeches.
 
-Minor data gaps: `VICS .../Q4bI_txt/words.txt` is absent (I-4b is deeds-only);
-the legacy `S.C.rtf` omitted "my" (the curated `SC.txt` includes it).
+Minor data gap: `VICS .../Q4bI_txt/words.txt` is absent (I-4b is deeds-only).

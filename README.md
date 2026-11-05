@@ -63,3 +63,14 @@ it is scored like English. The detected language/dialect is shown above your tex
 ## Notes for deployment
 - CORS is open (`*`) for dev — restrict `allow_origins` to the Angular origin.
 - Keep `GROQ_API_KEY` server-side only (the front-end never sees it).
+
+## Handing the system to another organization
+`deploy/` is a self-contained kit: app, API, Postgres and an optional local AI
+model (Ollama), started with one `docker compose` command. They run it on
+their own machine; [deploy/INSTALL.md](deploy/INSTALL.md) is the guide to give
+them. Commit, then `bash deploy/make-bundle.sh` (add `--with-images` for an
+offline server) writes the bundle to `deploy/dist/`.
+
+The AI provider is configurable (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`,
+`LLM_TIMEOUT`; Groq stays the default), so they can keep speech text on their
+own hardware.

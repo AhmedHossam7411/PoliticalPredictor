@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Speech Lab — LTA accuracy testing</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <h1>Speech Lab</h1>
+  <p>Set Hermann's seven LTA traits, generate a speech at those levels, and see how close the predictor's scorers come.</p>
+  <span id="ai-status" class="status"></span>
+</header>
+
+<main>
+  <section class="panel" id="controls">
+    <h2>1. Target profile</h2>
+    <p class="hint">0–100, where 50 is an average world leader. Bands follow Hermann's ±1 SD rule:
+      above <b id="cut-high">84</b> = High, below <b id="cut-low">16</b> = Low.
+      CC, SC and Task focus compare two word lists, so 50 is their dividing line.</p>
+    <div id="sliders"></div>
+    <div class="row">
+      <button id="btn-random" type="button">Random profile</button>
+      <button id="btn-reset" type="button">All to 50</button>
+    </div>
+
+    <h2>2. Speech</h2>
+    <label>Language
+      <select id="language"></select>
+    </label>
+    <label>Topic / occasion (optional)
+      <input id="topic" placeholder="e.g. a national address on a border crisis">
+    </label>
+    <label>Length (words)
+      <input id="words" type="number" min="150" max="1500" step="50" value="600">
+    </label>
+    <button id="btn-generate" class="primary" type="button">Generate speech &amp; score it</button>
+    <p id="progress" class="hint"></p>
+  </section>
+
+  <section class="panel" id="output">
+    <div class="output-head">
+      <h2 id="speech-title">3. Speech</h2>
+      <span id="speech-meta" class="hint"></span>
+    </div>
+    <div class="toolbar">
+      <div class="seg" role="group" aria-label="Highlight mode">
+        <button type="button" data-mode="scorer" class="on" title="Words the dictionary scorer actually counted">Scorer counts</button>
+        <button type="button" data-mode="intended" title="Phrases the AI says it wrote to express each trait">AI intended</button>
+        <button type="button" data-mode="none">None</button>
+      </div>
+      <button id="btn-edit" type="button">Edit text</button>
+      <button id="btn-rescore" type="button" hidden>Re-score edited text</button>
+    </div>
+    <div id="legend"></div>
+    <div id="speech" class="speech empty" dir="auto">Generate a speech to see it here.</div>
+    <textarea id="speech-edit" dir="auto" hidden></textarea>
+
+    <h2>4. Target vs measured</h2>
+    <div id="summary"></div>
+    <div class="table-wrap"><table id="results"></table></div>
+  </section>
+</main>
+
+<section class="panel" id="log">
+  <div class="output-head">
+    <h2>Run log</h2>
+    <a id="btn-csv" href="/api/runs.csv" class="button">Download CSV</a>
+  </div>
+  <div id="log-summary" class="hint"></div>
+  <div class="table-wrap"><table id="runs"></table></div>
+</section>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

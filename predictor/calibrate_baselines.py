@@ -6,18 +6,17 @@ grounded in how each stakeholder actually thinks and speaks -- not just the shor
 bio -- without shipping ~10k-character speeches into every request.
 
 Run once (re-run to refresh):  python -m predictor.calibrate_baselines
-Requires GROQ_API_KEY.
+Requires a configured AI provider (GROQ_API_KEY, or LLM_BASE_URL; see llm.py).
 """
 from __future__ import annotations
 
 import json
-import os
 import time
 from pathlib import Path
 
 import httpx
 
-from .llm import GROQ_URL, DEFAULT_MODEL, LLMNotConfigured
+from .llm import CHAT_URL, LLMNotConfigured, _api_key, _model, available, not_configured_reason
 from .stakeholders import STAKEHOLDERS
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -48,10 +47,10 @@ The key_quotes must be exact substrings of the speech, not paraphrased."""
 
 
 def distill(name: str, role: str, speech: str, timeout: float = 90.0) -> dict:
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise LLMNotConfigured("GROQ_API_KEY environment variable is not set.")
-    model = os.environ.get("GROQ_MODEL", DEFAULT_MODEL)
+    if not available():
+        raise LLMNotConfigured(not_configured_reason())
+    api_key = _api_key()
+    model = _model()
     payload = {
         "model": model,
         "temperature": 0.2,
@@ -62,9 +61,9 @@ def distill(name: str, role: str, speech: str, timeout: float = 90.0) -> dict:
              "content": f"Person: {name} ({role}).\n\nBaseline speech:\n\n{speech}"},
         ],
     }
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     for attempt in range(6):
-        resp = httpx.post(GROQ_URL, json=payload, headers=headers, timeout=timeout)
+        resp = httpx.post(CHAT_URL, json=payload, headers=headers, timeout=timeout)
         if resp.status_code == 429:
             wait = float(resp.headers.get("retry-after", 20)) + 1
             print(f"    429 rate-limited; waiting {wait:.0f}s...", flush=True)

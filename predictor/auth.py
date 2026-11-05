@@ -32,6 +32,18 @@ AUTH_PASSWORD_HASH = os.environ.get("AUTH_PASSWORD_HASH", "")  # pbkdf2_sha256$.
 SESSION_SECRET = os.environ.get("SESSION_SECRET", "dev-insecure-change-me")
 TOKEN_TTL_SECONDS = int(os.environ.get("TOKEN_TTL_SECONDS", "28800"))  # 8 hours
 
+# Installs (the deploy/ kit sets REQUIRE_SECRETS=1) refuse to start on the
+# dev-friendly defaults above rather than run with a publicly known login.
+if os.environ.get("REQUIRE_SECRETS") == "1":
+    _missing = [name for name, bad in (
+        ("SESSION_SECRET", SESSION_SECRET == "dev-insecure-change-me" or len(SESSION_SECRET) < 32),
+        ("AUTH_PASSWORD or AUTH_PASSWORD_HASH",
+         not AUTH_PASSWORD_HASH and AUTH_PASSWORD in ("", "predict2026")),
+    ) if bad]
+    if _missing:
+        raise RuntimeError("REQUIRE_SECRETS=1 but these are unset or still the defaults: "
+                           + ", ".join(_missing) + ". See deploy/INSTALL.md.")
+
 _MAX_ATTEMPTS = int(os.environ.get("LOGIN_MAX_ATTEMPTS", "8"))
 _WINDOW = int(os.environ.get("LOGIN_WINDOW_SECONDS", "300"))  # 5 minutes
 

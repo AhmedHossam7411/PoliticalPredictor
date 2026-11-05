@@ -14,7 +14,6 @@ word matching would miss almost everything. This module provides:
                            common prefixes (و ف ب ل ك س ال، Egyptian ح/ه future,
                            imperfect ي ت ن ا) and suffixes (pronoun clitics,
                            plural/dual endings, Egyptian negation ش);
-  * count_pronouns(...) -- closed-class first-person words (for SC).
 
 Entries of two letters or fewer (e.g. "لو", "شك") only match after peeling
 the conjunction and article, not the full clitic set, to avoid false hits
@@ -143,22 +142,6 @@ def count_terms(text: str, entries: frozenset[str]) -> tuple[int, dict[str, int]
             if all(_matches(toks[i + k], words[k]) for k in range(L)):
                 hits[entry] = hits.get(entry, 0) + 1
                 total += 1
-    return total, hits
-
-
-def count_pronouns(text: str, entries: frozenset[str]) -> tuple[int, dict[str, int]]:
-    """Closed-class words: match after peeling only a leading و/ف.
-
-    Not the article -- "اللي" (Egyptian "which") must not count as "لي" (me).
-    """
-    lookup = {tokens(e)[0]: e for e in entries if tokens(e)}
-    hits: dict[str, int] = {}
-    total = 0
-    for tok in tokens(text):
-        hit = next((lookup[v] for v in _peel_prefixes(tok, (_CONJ,)) if v in lookup), None)
-        if hit is not None:
-            hits[hit] = hits.get(hit, 0) + 1
-            total += 1
     return total, hits
 
 
