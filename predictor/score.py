@@ -86,15 +86,33 @@ def ratio_band(trait: str, share: float) -> str:
 # Two-list traits blend toward an even split instead; that can't change which
 # list is ahead, so thin evidence shows in their value and confidence, not band.
 PRIOR_TOKENS = 300  # density traits: words of average text added
-PRIOR_HITS = 10     # ratio traits (CC, TASK): marker words of average mix added
+PRIOR_HITS = 10     # ratio traits (CC, SC, TASK): marker words of average mix added
+# List words a trait needs before it is called, in proportion to the speech: one
+# per 100 words, from 2 (a single word never decides) up to 5. Below that a
+# two-list trait says so and a one-list trait can't be High. Short speeches still
+# get results, with low confidence; the words found stay in `matches`.
+MIN_HITS, MAX_HITS = 2, 5
+TOO_FEW = "Too few words"
+
+
+def hits_needed(tokens: int) -> int:
+    return max(MIN_HITS, min(MAX_HITS, tokens // 100))
+
+
+def _ratio_counts(tr: dict) -> tuple[int, int]:
+    """(first list's hits, both lists' hits) of a two-list trait."""
+    if "high" in tr:
+        return tr["high"], tr["high"] + tr["low"]
+    return tr["task"], tr["task"] + tr["group"]
 
 
 def weigh(tr: dict, tokens: int, mean: float) -> tuple[float, float]:
     """(evidence-weighted value, weight of the text's own evidence 0..1)."""
     if tr["kind"] == "ratio":
-        hits, n = (tr["high"], tr["high"] + tr["low"]) if "high" in tr \
-            else (tr["task"], tr["task"] + tr["group"])
-        return (hits + PRIOR_HITS * 0.5) / (n + PRIOR_HITS), n / (n + PRIOR_HITS)
+        hits, n = _ratio_counts(tr)
+        # Confidence needs both enough list words and enough text around them.
+        return ((hits + PRIOR_HITS * 0.5) / (n + PRIOR_HITS),
+                min(n / (n + PRIOR_HITS), tokens / (tokens + PRIOR_TOKENS)))
     return ((1000.0 * tr["count"] + PRIOR_TOKENS * mean) / (tokens + PRIOR_TOKENS),
             tokens / (tokens + PRIOR_TOKENS))
 
@@ -111,24 +129,32 @@ def analyze_with_bands(text: str, norm: dict | None = None) -> dict:
     `band` uses the weighted value, so short texts need a strong, repeated signal
     to be extreme. `percent` is the figure to show: the list words' share of the
     text (density traits) or the first list's share of the hits (two-list traits).
+    `hits` is the number of list words found; see hits_needed.
     """
     result = analyze(text)
     if norm is None:
         norm = default_norm(result["input"]["language"])
     tokens = result["lta"]["tokens"]
+    needed = hits_needed(tokens)
     for t in LTA_TRAITS:
         tr = result["lta"]["traits"][t]
         mean, std = norm[t]["mean"], norm[t]["std"]
         tr["adjusted"], tr["weight"] = weigh(tr, tokens, mean)
         tr["confidence"] = confidence(tr["weight"])
         if tr["kind"] == "ratio":
+            tr["hits"] = _ratio_counts(tr)[1]
             tr["percent"] = 100.0 * tr["value"]
-            tr["raw_band"] = tr["band"] = ratio_band(t, tr["value"])
+            tr["raw_band"] = ratio_band(t, tr["value"])
+            tr["band"] = tr["raw_band"] if tr["hits"] >= needed else TOO_FEW
         else:
+            tr["hits"] = tr["count"]
             tr["percent"] = tr["value"] / 10.0
             tr["raw_band"] = band(tr["value"], mean, std)
             tr["band"] = band(tr["adjusted"], mean, std)
-    result["lta"]["weighting"] = {"prior_tokens": PRIOR_TOKENS, "prior_hits": PRIOR_HITS}
+            if tr["band"] == "High" and tr["hits"] < needed:
+                tr["band"] = "Moderate"
+    result["lta"]["weighting"] = {"prior_tokens": PRIOR_TOKENS, "prior_hits": PRIOR_HITS,
+                                 "hits_needed": needed}
     return result
 
 

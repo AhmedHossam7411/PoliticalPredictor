@@ -8,6 +8,9 @@ pyjwt>=2.8
 # Postgres store (only used when DATABASE_URL is set; harmless otherwise)
 psycopg[binary]>=3.2
 
+# Reading uploaded PDFs (pure-Python)
+pypdf>=5
+
 # NLP: lemmatization + POS for LTA matching
 spacy>=3.8
 # English model (installed via direct wheel; `spacy download` may not detect pip)

@@ -105,12 +105,59 @@
   <section class="input-card">
     <div class="toolbar">
       <button class="ghost" (click)="pasteFromClipboard()">📋 {{ t().pasteBtn }}</button>
+      <button class="ghost" (click)="speechFile.click()" [disabled]="uploading()">
+        📄 {{ uploading() ? t().uploadingBtn : t().uploadBtn }}
+      </button>
+      <input #speechFile type="file" hidden accept=".txt,.pdf,.docx" (change)="uploadSpeech($event)" />
       <button class="ghost" (click)="clearText()">{{ t().clearBtn }}</button>
     </div>
+    <p class="pdf-note">{{ t().uploadHint }}</p>
+    @if (uploadedName(); as name) {
+      <p class="pdf-note">{{ t().uploadedFrom }} <strong dir="auto">{{ name }}</strong></p>
+    }
+    @if (uploadError()) { <p class="error">{{ uploadError() }}</p> }
 
     <textarea dir="auto"
-      [ngModel]="text()" (ngModelChange)="text.set($event)"
+      [ngModel]="text()" (ngModelChange)="text.set($event)" (paste)="onTextPaste()"
       rows="11" [placeholder]="t().placeholder"></textarea>
+
+    @if (docSpeeches().length) {
+      <div class="speech-picker">
+        <p class="speech-found"><strong>{{ t().speechesFound.replace('{n}', '' + docSpeeches().length) }}</strong></p>
+        <div class="speech-controls">
+          <select [ngModel]="selectedSpeech()" (ngModelChange)="pickSpeech($event)" [attr.aria-label]="t().speakerLabel">
+            <option value="">{{ t().wholeDocument }}</option>
+            @for (s of docSpeeches(); track s.id) {
+              <option [value]="s.id">{{ speechLabel(s) }} · {{ s.words }} {{ t().wordsUnit }}</option>
+            }
+          </select>
+          <button class="ghost" (click)="scoreAllSpeeches()" [disabled]="scoringSpeeches()">
+            {{ scoringSpeeches() ? t().scoringAll : t().scoreAll }}
+          </button>
+        </div>
+        @if (!selectedSpeech()) { <p class="fallback-note">⚠ {{ t().mixedWarning }}</p> }
+        @if (speechScores(); as rows) {
+          <div class="speech-table-wrap">
+            <p class="pdf-note">{{ t().compareNote }}</p>
+            <table class="speech-table">
+              <thead><tr><th>{{ t().speakerLabel }}</th>
+                @for (tr of traits; track tr) { <th>{{ tr }}</th> }<th></th></tr></thead>
+              <tbody>
+                @for (row of rows; track row.speech.id) {
+                  <tr>
+                    <td>{{ row.speech.speaker }} <span class="hl-count">{{ row.speech.words }} {{ t().wordsUnit }}</span></td>
+                    @for (tr of traits; track tr) {
+                      <td><span class="band" [class]="bandClass(row.traits[tr].band)">{{ bandLabel(row.traits[tr].band) }}</span></td>
+                    }
+                    <td><button class="ghost" (click)="pickSpeech(row.speech.id); runBoth()" [disabled]="anyLoading()">{{ t().analyze }}</button></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      </div>
+    }
 
     <div class="actions">
       <button (click)="runBoth()" [disabled]="anyLoading() || !text().trim()">
@@ -215,51 +262,84 @@
         @if (inputLang()) {
           <p class="input-lang">{{ t().inputLangLabel }} <span class="lang-badge">{{ inputLang() }}</span></p>
         }
-        <div class="submitted" dir="auto">{{ submittedText() }}</div>
+        @if (highlightLegend().length) {
+          <p class="pdf-note">{{ t().highlightHint }} {{ t().highlightKey }}</p>
+          <div class="hl-legend">
+            @for (l of highlightLegend(); track l.label) {
+              <button type="button" class="hl-chip" [class.off]="l.hidden" [attr.aria-pressed]="!l.hidden"
+                (click)="toggleList(l.label)">
+                <span class="hl" [style]="l.style">{{ l.name }}</span> <span class="hl-count">{{ l.count }}</span>
+              </button>
+            }
+          </div>
+        }
+        @if (analyzedSpeech(); as who) { <p class="speech-found"><strong>{{ t().speakerLabel }}</strong> {{ who }}</p> }
+        @if (analyzedMixed()) { <p class="fallback-note">⚠ {{ t().mixedWarning }}</p> }
+        <div class="submitted" dir="auto">@for (p of highlightPieces(); track $index) {@if (p.style) {<span class="hl" [style]="p.style" [title]="p.title">{{ p.text }}</span>} @else {{{ p.text }}}}</div>
       </section>
 
       <section class="card summary-panel">
-        <h2>
-          {{ t().summaryHeading }}
-          @if (llm()) {
-            <span class="mode-badge ai">✓ {{ t().modeAi }}</span>
-          } @else if (!llmLoading()) {
-            <span class="mode-badge fallback">⚠ {{ t().modeFallback }}</span>
-          }
-        </h2>
-
-        @if (llm()?.leadership_style; as style) {
-          <p class="style"><strong>{{ t().leadershipLabel }}</strong> {{ style }}</p>
-        }
-
-        @if (summary()) {
-          <p class="summary-text">{{ summary() }}</p>
-        } @else if (llmLoading()) {
-          <p class="muted">{{ t().summaryWait }}</p>
-        } @else {
-          <p class="muted">{{ t().noSummary }}</p>
-        }
-
-        <!-- On-screen trait breakdown (full detail + politics indices are in the PDF) -->
-        @if (dict() || llm()) {
-          <h3>{{ t().personalityHeading }}</h3>
+        <!-- Word scorer first: it's the primary, explainable result. -->
+        <div class="scorer-block word-block">
+          <h2>{{ t().pdfWordHeading }} <span class="mode-badge word">{{ t().wordScorerBadge }}</span></h2>
+          <p class="pdf-note">{{ t().wordBlockDesc }}</p>
+          @if (dict(); as d) {
+          @if (wordSummary()) { <p class="summary-text">{{ wordSummary() }}</p> }
+          <p class="pdf-note">{{ t().textLengthLabel }}: {{ d.lta.tokens }}</p>
           <div class="mini-traits">
             @for (tr of traits; track tr) {
-              <div class="mini-row">
+              <div class="mini-row word-row">
                 <span class="trait-name">{{ t().traitNames[tr] }} <span class="code">{{ tr }}</span></span>
-                @if (llm(); as l) {
-                  <span class="band" [class]="bandClass(l.traits[tr].band)">{{ bandLabel(l.traits[tr].band) }}</span>
-                  <span class="score">{{ l.traits[tr].score }}/100</span>
-                } @else if (dict(); as d) {
-                  <span class="band" [class]="bandClass(d.lta.traits[tr].band)">{{ bandLabel(d.lta.traits[tr].band) }}</span>
-                  <span class="score">{{ dictValue(tr, d.lta.traits[tr]) }}</span>
-                  @if (d.lta.traits[tr].confidence; as c) {
-                    <span class="score">{{ t().confidenceLevels[c] }} {{ t().confidenceLabel }}</span>
-                  }
+                <span class="band" [class]="bandClass(d.lta.traits[tr].band)">{{ bandLabel(d.lta.traits[tr].band) }}</span>
+                <span class="score">{{ dictValue(tr, d.lta.traits[tr]) }}</span>
+                @if (d.lta.traits[tr].confidence; as c) {
+                  <span class="score">{{ t().confidenceLevels[c] }} {{ t().confidenceLabel }}</span>
+                }
+                @if (dictExplain(tr, d.lta.traits[tr], d.lta.tokens); as why) {
+                  <p class="word-why" dir="auto">{{ why }}</p>
                 }
               </div>
             }
           </div>
+          <p class="pdf-note">{{ t().wordConfNote }}</p>
+          } @else if (dictLoading()) {
+            <p class="muted">{{ t().wordScorerWait }}</p>
+          }
+        </div>
+
+        <div class="scorer-block ai-block">
+          <h2>
+            {{ t().pdfAiHeading }}
+            @if (llm()) {
+              <span class="mode-badge ai">✓ {{ t().modeAi }}</span>
+            } @else if (!llmLoading()) {
+              <span class="mode-badge fallback">⚠ {{ t().modeFallback }}</span>
+            }
+          </h2>
+          <p class="pdf-note">{{ t().aiBlockDesc }}</p>
+          @if (excerptNote(llm()?.excerpted); as note) { <p class="fallback-note">{{ note }}</p> }
+          @if (llm(); as l) {
+            @if (l.leadership_style; as style) {
+              <p class="style"><strong>{{ t().leadershipLabel }}</strong> {{ style }}</p>
+            }
+            @if (l.summary) { <p class="summary-text">{{ l.summary }}</p> }
+          <div class="mini-traits">
+            @for (tr of traits; track tr) {
+              <div class="mini-row">
+                <span class="trait-name">{{ t().traitNames[tr] }} <span class="code">{{ tr }}</span></span>
+                <span class="band" [class]="bandClass(l.traits[tr].band)">{{ bandLabel(l.traits[tr].band) }}</span>
+                <span class="score">{{ l.traits[tr].score }}/100</span>
+              </div>
+            }
+          </div>
+          } @else if (llmLoading()) {
+            <p class="muted">{{ t().summaryWait }}</p>
+          } @else {
+            <p class="muted">{{ t().noSummary }}</p>
+          }
+        </div>
+
+        @if (dict() || llm()) {
           <p class="pdf-note">{{ t().pdfMore }}</p>
         }
 
@@ -281,9 +361,11 @@
     <section class="card">
       <h2>
         {{ t().stakeHeading }}
+        @if (st.method === 'llm') { <span class="mode-badge ai">✓ {{ t().modeAi }}</span> }
         @if (st.calibrated) { <span class="tag groq">{{ t().calibratedTag }}</span> }
       </h2>
       <p class="muted">{{ t().stakeIntro }}</p>
+      @if (excerptNote(st.excerpted); as note) { <p class="fallback-note">{{ note }}</p> }
       @if (st.method === 'heuristic') {
         <p class="fallback-note">⚠ {{ t().fallbackNote }}
           @if (st.fallback_reason) { <br><small>{{ st.fallback_reason }}</small> }

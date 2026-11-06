@@ -24,14 +24,29 @@ def _phrase_pattern(phrase: str) -> re.Pattern:
     return re.compile(r"\b" + r"\s+".join(parts) + r"\b", re.IGNORECASE)
 
 
+@lru_cache(maxsize=8)
+def _words_in(text: str) -> frozenset[str]:
+    return frozenset(w.lower() for w in _TOKEN.findall(text))
+
+
+@lru_cache(maxsize=4096)
+def _phrase_words(phrase: str) -> tuple[str, ...]:
+    return tuple(w.lower() for w in _TOKEN.findall(phrase))
+
+
 def count_matches(text: str, phrases: set[str]) -> tuple[int, dict[str, int]]:
     """Count non-overlapping occurrences of each phrase in text.
 
     Returns (total_hits, {phrase: count}) including only phrases that matched.
+    Phrases with a word missing from the text skip the regex, which matters on
+    long documents: thousands of phrases each scanning the whole text.
     """
     hits: dict[str, int] = {}
     total = 0
+    present = _words_in(text)
     for phrase in phrases:
+        if not all(w in present for w in _phrase_words(phrase)):
+            continue
         n = len(_phrase_pattern(phrase).findall(text))
         if n:
             hits[phrase] = n

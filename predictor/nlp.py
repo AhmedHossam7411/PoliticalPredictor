@@ -21,6 +21,8 @@ def nlp():
     global _NLP
     if _NLP is None:
         _NLP = spacy.load(_MODEL, disable=["parser", "ner"])
+        # The default 1M-character cap guards the parser and NER, which are off.
+        _NLP.max_length = 20_000_000
     return _NLP
 
 

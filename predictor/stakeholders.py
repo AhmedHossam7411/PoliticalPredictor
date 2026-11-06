@@ -18,7 +18,7 @@ from pathlib import Path
 
 import httpx
 
-from .llm import (_LANG_NAMES, LLMNotConfigured, available, input_note, chat_json,
+from .llm import (_LANG_NAMES, LLMNotConfigured, available, fit_speech, input_note, chat_json,
                   not_configured_reason)
 from . import store as _storage
 
@@ -444,13 +444,14 @@ def _language_instruction(language: str) -> str:
 
 
 def llm_react(text: str, language: str = "en", timeout: float | None = None) -> dict:
-    user = (f"Stakeholders:\n{_profiles_for_prompt()}\n\n"
-            f"Speech / policy text:\n\n{text}")
+    system = _SYSTEM_PROMPT + input_note(text)[1] + _language_instruction(language)
+    profiles = f"Stakeholders:\n{_profiles_for_prompt()}\n\n"
+    sent, excerpt_note, excerpted = fit_speech(text, system + profiles)
+    user = f"{profiles}Speech / policy text:\n\n{sent}"
     # Low reasoning effort: this prompt is ~5.5k tokens, and gpt-oss's hidden
     # reasoning otherwise pushes the call near the free tier's 8k/minute cap.
     data, model = chat_json([
-        {"role": "system",
-         "content": _SYSTEM_PROMPT + input_note(text)[1] + _language_instruction(language)},
+        {"role": "system", "content": system + excerpt_note},
         {"role": "user", "content": user},
     ], temperature=0.3, timeout=timeout, reasoning_effort="low", max_wait=60.0)
 
@@ -479,7 +480,7 @@ def llm_react(text: str, language: str = "en", timeout: float | None = None) -> 
     order = {s["id"]: i for i, s in enumerate(STAKEHOLDERS)}
     reactions.sort(key=lambda r: order.get(r["id"], 99))
     return {"reactions": reactions, "method": "llm", "model": model,
-            "calibrated": bool(BASELINE_PROFILES)}
+            "calibrated": bool(BASELINE_PROFILES), "excerpted": excerpted}
 
 
 def react(text: str, language: str = "en") -> dict:

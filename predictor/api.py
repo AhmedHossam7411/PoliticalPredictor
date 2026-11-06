@@ -14,6 +14,7 @@ import os
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -24,6 +25,9 @@ from .mock_speeches import MOCK_SPEECHES
 from . import llm
 from . import stakeholders as stk
 from . import auth
+from .extract import ExtractError, MAX_BYTES, extract_text
+from .highlight import scorer_spans
+from .speeches import split_speeches
 
 app = FastAPI(title="PoliticalPredictor", version="0.1.0",
               summary="LTA + VICS at-a-distance speech scoring")
@@ -147,7 +151,30 @@ def mock_speeches(user: str = Depends(auth.require_auth)) -> dict:
 @app.post("/analyze")
 def analyze_endpoint(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     norm = _norm_for(req.norming_corpus)
-    return analyze_with_bands(req.text, norm)
+    # `spans`: where each counted word sits in the text, for highlighting.
+    return {**analyze_with_bands(req.text, norm), "spans": scorer_spans(req.text)}
+
+
+@app.post("/extract-text")
+async def extract_text_endpoint(filename: str, request: Request,
+                                user: str = Depends(auth.require_auth)) -> dict:
+    """The speech text of an uploaded .txt, .pdf or .docx (the file is the raw body)."""
+    data = bytearray()
+    async for chunk in request.stream():
+        data += chunk
+        if len(data) > MAX_BYTES:
+            raise HTTPException(status_code=413, detail="file-too-big")
+    try:
+        text = await run_in_threadpool(extract_text, filename, bytes(data))
+    except ExtractError as exc:
+        raise HTTPException(status_code=422, detail=exc.code) from exc
+    return {"text": text, "speeches": split_speeches(text)}
+
+
+@app.post("/split-speeches")
+def split_speeches_endpoint(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
+    """The separate speakers in a pasted document (empty if there aren't several)."""
+    return {"speeches": split_speeches(req.text)}
 
 
 @app.post("/analyze/batch")

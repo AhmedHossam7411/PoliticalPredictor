@@ -1,45 +1,55 @@
-# Self-confidence, LOW markers: hedging, doubt, hesitation (Modern Standard + Egyptian).
-# Draft rendering of the English SC_low list; needs specialist review.
+# Self-confidence, low. Every entry translates a word on the English list (see
+# translations_en_ar.csv) or is a form of one, including Egyptian forms. Draft.
+# Base forms; the matcher peels prefixes and suffixes. *x means a word ending in x.
+على ما يبدو
+تقريبا
 ربما
+من المحتمل
+على الأرجح
+مرجح
+غير متأكد
+عدم اليقين
+أشك
+مشكوك
+بشك
+متردد
+تردد
+أتردد
+مبدئي
+مبدئيا
+يبدو
+بدت
+ظاهريا
+اقترح
+يقترح
+اقتراح
+تكهن
+تكهنات
+تخميني
+يمكن
+يفترض
+افترض
+افتراض
+غير واضح
+بغموض
+إحجام
+حذر
+بحذر
 لعل
-يمكن أن
 من الممكن
-ممكن
 محتمل
-احتمال
 جايز
 يجوز
-تقريبا
-على ما يبدو
-ظاهريا
-يبدو
 تبدو
 شكله
-غير متأكد
 مش متأكد
 مش واثق
 غير واثق
 غير مؤكد
-أشك
 نشك
-شكوك
-مشكوك
-متردد
 مترددون
-تردد
-أتردد
 نتردد
-مبدئيا
-أقترح
 نقترح
-اقتراح
-تكهن
-تكهنات
-يفترض
 مفترض
-افتراض
-غير واضح
 مش واضح
 غير حاسم
-حذر
-بحذر

@@ -159,7 +159,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 @media (max-width: 900px) { .results { grid-template-columns: 1fr; } }
 
 /* Split view: entered text on the left, summary on the right */
-.split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; align-items: stretch; }
+.split { display: grid; grid-template-columns: 4fr 5fr; gap: 1.25rem; align-items: stretch; }
 @media (max-width: 900px) { .split { grid-template-columns: 1fr; } }
 .submitted {
   white-space: pre-wrap; background: var(--surface2); border: 1px solid var(--line);
@@ -170,12 +170,31 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .mode-badge { font-size: 0.72rem; font-weight: 700; padding: 0.2rem 0.6rem;
   border-radius: var(--radius-sm); white-space: nowrap; }
 .mode-badge.ai { background: #d6f5e1; color: #15803d; }
+.submitted { line-height: 1.85; white-space: pre-line; }
+.hl { padding: 0 1px 3px; border-radius: 2px; }
+.hl-legend { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.6rem; }
+button.hl-chip { background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 0.2rem 0.45rem; font-size: 0.74rem; font-weight: 500; }
+button.hl-chip:hover { background: var(--surface2); }
+button.hl-chip.off { opacity: 0.45; text-decoration: line-through; }
+.hl-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .input-lang { margin: 0 0 0.5rem; font-size: 0.85rem; color: #555; }
 .lang-badge { display: inline-block; font-weight: 700; padding: 0.15rem 0.55rem;
   border-radius: 999px; background: #e0e7ff; color: #3730a3; }
 .mode-badge.fallback { background: #fdecc8; color: #92400e; }
 .summary-text { font-size: 1.2rem; line-height: 1.65; margin: 0.5rem 0 1rem; }
 .summary-panel .style { font-size: 1rem; margin: 0.25rem 0 0.5rem; }
+.scorer-block { padding-inline-start: 0.85rem; border-inline-start: 4px solid var(--line); margin-bottom: 1.5rem; }
+.scorer-block h2 { margin-top: 0; }
+.word-block { border-inline-start-color: var(--accent); }
+.ai-block { border-inline-start-color: #15803d; }
+.mode-badge.word { background: #dbeafe; color: #1e40af; }
+.speech-picker { margin-top: 0.9rem; padding: 0.75rem; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface2); }
+.speech-found { margin: 0 0 0.5rem; font-size: 0.9rem; }
+.speech-controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.speech-controls select { flex: 1 1 18rem; min-width: 0; padding: 0.45rem; }
+.speech-table-wrap { margin-top: 0.75rem; overflow-x: auto; }
+.speech-table { width: 100%; border-collapse: collapse; font-size: 0.8rem; background: var(--card); }
+.speech-table th, .speech-table td { border: 1px solid var(--line); padding: 0.35rem 0.45rem; text-align: start; white-space: nowrap; }
 .mini-traits { margin: 0.25rem 0 0.5rem; }
 .mini-row {
   display: flex; align-items: center; gap: 0.6rem;
@@ -185,6 +204,10 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .mini-row .trait-name { font-weight: 600; font-size: 0.92rem; }
 .mini-row .band { margin-inline-start: auto; }
 .mini-row .score { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 0.8rem; min-width: 3.5em; text-align: end; }
+/* Word-list rows: result on one line, the reasoning on its own line below. */
+.word-row { flex-wrap: wrap; column-gap: 0.9rem; row-gap: 0.45rem; padding: 0.8rem 0; }
+.word-row .score { white-space: nowrap; min-width: 0; }
+.word-why { flex-basis: 100%; margin: 0; font-size: 0.82rem; color: var(--muted); line-height: 1.55; }
 .pdf-note { font-size: 0.8rem; color: var(--muted); margin: 0.25rem 0 0.75rem; }
 .pdf-btn { margin-top: auto; align-self: flex-start; background: var(--accent2); }
 .pdf-btn:hover { background: #0e7490; }
@@ -249,6 +272,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 .stance-support, .band-low { background: #d6f5e1; color: #15803d; }
 .stance-oppose, .band-high { background: #fde0e0; color: #c81e1e; }
 .stance-mixed, .band-moderate { background: #fdecc8; color: #b45309; }
+.band-problem-solving, .band-relationship-building, .band-balanced, .band-too-few-words { background: var(--surface2); color: var(--muted); }
 .stance-neutral { background: #e2e8f0; color: #475569; }
 
 .conf-bar { height: 6px; background: #dbe3ef; border-radius: 2px; overflow: hidden; margin: 0.1rem 0 0.5rem; }

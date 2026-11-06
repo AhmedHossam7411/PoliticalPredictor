@@ -27,6 +27,11 @@ IS_GROQ = BASE_URL == GROQ_BASE_URL
 DEFAULT_MODEL = "openai/gpt-oss-120b"
 # Self-hosted models can be slow; raise this for CPU-only servers.
 TIMEOUT = float(os.environ.get("LLM_TIMEOUT") or 60)
+# Most input tokens to send in one call. Groq's free tier refuses more than about
+# 8k a minute; raise this for a paid tier or a model with a larger context.
+MAX_INPUT_TOKENS = int(os.environ.get("LLM_MAX_INPUT_TOKENS") or (7500 if IS_GROQ else 14000))
+_MIN_SPEECH_TOKENS = 500
+_EXCERPTS = 8
 
 
 def _api_key() -> str | None:
@@ -110,6 +115,39 @@ def _length_note(text: str) -> str:
     )
 
 
+def estimate_tokens(text: str) -> int:
+    """Rough token count, on the high side: Arabic takes more tokens per character."""
+    return int(len(text) / (2.5 if arabic.is_arabic(text) else 4))
+
+
+def fit_speech(text: str, prompt: str = "") -> tuple[str, str, dict | None]:
+    """Fit a speech into what's left of MAX_INPUT_TOKENS after the prompt.
+
+    Returns (text to send, prompt note, {read_words, total_words} or None if the
+    whole speech fits). A long document becomes evenly spaced excerpts cut at line
+    or sentence ends, so the model sees all of it rather than just the start.
+    """
+    budget = max(_MIN_SPEECH_TOKENS, MAX_INPUT_TOKENS - estimate_tokens(prompt))
+    tokens = estimate_tokens(text)
+    if tokens <= budget:
+        return text, "", None
+    step, size = len(text) // _EXCERPTS, int(len(text) * budget / tokens) // _EXCERPTS
+    excerpts = []
+    for i in range(_EXCERPTS):
+        window = text[i * step:i * step + size]
+        # Drop the broken sentence at each edge, if the window has a break to cut at.
+        starts = [window.find(c) for c in ("\n", ". ", "\u061f", "\u060c") if c in window]
+        start = min(starts) + 1 if starts and i else 0
+        end = max(window.rfind(c) for c in ("\n", ".", "\u061f"))
+        excerpts.append(window[start:end + 1 if end > start else len(window)].strip())
+    sent = "\n\n[...]\n\n".join(excerpts)
+    total, read = len(text.split()), len(sent.split())
+    note = (f"\n\nThis is a long document of {total} words. You are given {_EXCERPTS} "
+            f"evenly spaced excerpts ({read} words), separated by [...]. Judge the whole "
+            "document from them.")
+    return sent, note, {"read_words": read, "total_words": total}
+
+
 class LLMNotConfigured(RuntimeError):
     """Raised when no AI provider is configured."""
 
@@ -185,12 +223,14 @@ def score_llm(text: str, model: str | None = None, timeout: float | None = None,
     scores, keys and bands stay English.
     """
     detected, note = input_note(text)
+    system = _SYSTEM_PROMPT + note + _length_note(text) + _language_instruction(language)
+    sent, excerpt_note, excerpted = fit_speech(text, system)
     data, model = chat_json([
-        {"role": "system",
-         "content": _SYSTEM_PROMPT + note + _length_note(text) + _language_instruction(language)},
-        {"role": "user", "content": f"Score this speech:\n\n{text}"},
+        {"role": "system", "content": system + excerpt_note},
+        {"role": "user", "content": f"Score this speech:\n\n{sent}"},
     ], temperature=0.2, model=model, timeout=timeout)
     data["model"] = model
+    data["excerpted"] = excerpted
     data["method"] = "llm"
     data["language"] = language
     data["input"] = detected

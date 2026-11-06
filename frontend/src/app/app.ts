@@ -10,29 +10,74 @@ declare global {
   interface Window { __API_URL__?: string }
 }
 const API = window.__API_URL__ || 'http://127.0.0.1:8000';
+const TRAIT_COLORS: Record<string, string> = {
+  BACE: '#2563eb', PWR: '#dc2626', CC: '#7c3aed', SC: '#ea580c',
+  TASK: '#16a34a', DIS: '#92400e', IGB: '#0d9488',
+};
+
+/** Text from PDFs and web pages keeps its old line breaks, which leaves it stuck in a
+ *  narrow column. Turn a break inside a sentence into a space, one character for one
+ *  so word positions stay valid. Blank lines, sentence ends and short lines keep theirs. */
+function reflowLines(chars: string[]): string[] {
+  const out = [...chars];
+  let lineStart = 0;
+  for (let i = 0; i < chars.length; i++) {
+    if (chars[i] !== '\n') continue;
+    let last = i - 1;
+    while (last >= lineStart && /[ \t]/.test(chars[last])) last--;
+    let next = i + 1;
+    while (next < chars.length && /[ \t]/.test(chars[next])) next++;
+    const blank = last < lineStart || next >= chars.length || chars[next] === '\n';
+    const ended = !blank && /[.!?:;؟؛…"”’)»]/.test(chars[last]);
+    if (!blank && !ended && last - lineStart + 1 >= 40) out[i] = ' ';
+    lineStart = i + 1;
+  }
+  return out;
+}
+
+/** A filled word = high/problem-solving/one-list word; underline only = low/relationship.
+ *  A word on several lists gets one underline per list. */
+function highlightStyle(labels: string[]): string {
+  const [trait, pole] = labels[0].split(':');
+  const lines = labels.map((l, i) => `inset 0 ${-2 * (i + 1)}px 0 ${TRAIT_COLORS[l.split(':')[0]]}`);
+  const fill = pole === 'low' ? '' : `background:${TRAIT_COLORS[trait]}2e;`;
+  return `${fill}box-shadow:${lines.join(',')};`;
+}
 
 interface DictTrait { kind: string; value: number; band: string; count?: number;
   high?: number; low?: number; task?: number; group?: number;
   // Evidence weighting: band uses `adjusted`; confidence = how much text backs it.
   adjusted?: number; raw_band?: string; confidence?: 'low' | 'medium' | 'high';
-  percent?: number; }
+  percent?: number; hits?: number;
+  // Words found: {word: count}, or per list for the two-list traits.
+  matches?: Record<string, number> | Record<string, Record<string, number>>; }
+// One counted word: character offsets (code points) and lists, e.g. "CC:high".
+interface WordSpan { start: number; end: number; labels: string[]; }
+// One speaker's text from a document holding several ("chair" = the chair's short remarks).
+interface Speech { id: string; speaker: string; title: string | null; spoke_in: string | null;
+  kind: 'speech' | 'chair'; words: number; text: string; }
+interface HighlightPiece { text: string; style: string; title: string; }
 interface InputInfo { language: 'en' | 'ar'; dialect: 'msa' | 'egyptian' | 'mixed' | null; }
 interface DictResult {
   input?: InputInfo; vics_supported?: boolean;
   lta: { tokens: number; traits: Record<string, DictTrait> };
+  spans?: WordSpan[];
   vics: Record<string, { label: string; value?: number }>;
 }
 interface LlmTrait { score: number; band: string; rationale: string; }
+// How much of a long document the AI was sent.
+interface Excerpted { read_words: number; total_words: number; }
 interface LlmResult {
   traits: Record<string, LlmTrait>;
   leadership_style?: string; summary?: string; model?: string; input?: InputInfo;
+  excerpted?: Excerpted | null;
 }
 interface Meta { lta_traits: string[]; vics_indices: string[];
   norming_corpus_default: string[]; llm_available: boolean; }
 interface Reaction { id: string; name: string; role: string; stance: string;
   confidence: number; reasoning: string; response: string; }
 interface StakeResult { reactions: Reaction[]; method: string; model?: string;
-  calibrated?: boolean; fallback_reason?: string; }
+  calibrated?: boolean; fallback_reason?: string; excerpted?: Excerpted | null; }
 interface PublicStakeholder { id: string; name: string; role: string; scope?: string;
   personality?: string; values: string[]; supports: string[]; opposes: string[];
   concerns: string[]; custom: boolean; }
@@ -68,6 +113,18 @@ export class App {
 
   text = signal('');
   submittedText = signal('');   // snapshot shown on the left once analyzed
+  dictText = signal('');        // the text `dict` was scored on
+  hiddenLists = signal<ReadonlySet<string>>(new Set());
+  docSpeeches = signal<Speech[]>([]);
+  selectedSpeech = signal('');  // '' = the whole document
+  private fullText = '';        // the whole document, to go back to
+  analyzedSpeech = signal('');  // who the current results are about
+  analyzedMixed = signal(false);  // the results combine several speakers
+  speechScores = signal<{ speech: Speech; traits: Record<string, DictTrait> }[] | null>(null);
+  scoringSpeeches = signal(false);
+  uploading = signal(false);
+  uploadedName = signal('');
+  uploadError = signal('');
   meta = signal<Meta | null>(null);
   showHelp = signal(true);
 
@@ -98,6 +155,67 @@ export class App {
   anyLoading = computed(() =>
     this.dictLoading() || this.llmLoading() || this.stakeLoading());
   analyzed = computed(() => !!this.dict() || !!this.llm() || !!this.stake());
+
+  /** "The AI read 5,120 of 41,836 words…", or '' when it read the whole text. */
+  excerptNote(excerpted?: Excerpted | null): string {
+    if (!excerpted) return '';
+    const fmt = (n: number) => n.toLocaleString('en-US');
+    return this.t().aiExcerptNote.replace('{read}', fmt(excerpted.read_words)).replace('{total}', fmt(excerpted.total_words));
+  }
+
+  /** Display name of a word list, e.g. "Conceptual Complexity: High list". */
+  private listName(label: string): string {
+    const b = this.t();
+    const [trait, pole] = label.split(':');
+    if (trait !== 'CC' && trait !== 'SC' && trait !== 'TASK') return b.traitNames[trait];
+    const [first, second] = this.listNames(trait);
+    return `${b.traitNames[trait]}: ${b.listOf.replace('{x}', pole === 'low' ? second : first)}`;
+  }
+
+  /** The word lists found in the analyzed text, in trait order, with counts. */
+  highlightLegend = computed(() => {
+    const counts: Record<string, number> = {};
+    for (const span of this.dict()?.spans ?? []) {
+      for (const l of span.labels) counts[l] = (counts[l] ?? 0) + 1;
+    }
+    const hidden = this.hiddenLists();
+    return this.traits.flatMap((tr) => [`${tr}:high`, `${tr}:low`])
+      .filter((l) => counts[l])
+      .map((l) => ({ label: l, name: this.listName(l), count: counts[l], hidden: hidden.has(l),
+                     style: highlightStyle([l]) }));
+  });
+
+  /** The analyzed text cut at every counted word's edges, styled by the lists covering it. */
+  highlightPieces = computed<HighlightPiece[]>(() => {
+    const text = this.submittedText();
+    const hidden = this.hiddenLists();
+    // Offsets count code points; Array.from keeps emoji etc. from shifting them.
+    const chars = reflowLines(Array.from(text));
+    const spans = (this.dictText() === text ? this.dict()?.spans ?? [] : [])
+      .map((s) => ({ ...s, labels: s.labels.filter((l) => !hidden.has(l)) }))
+      .filter((s) => s.labels.length);
+    const cuts = [...new Set([0, chars.length, ...spans.flatMap((s) => [s.start, s.end])])].sort((a, b) => a - b);
+    // Walk the cuts in order, tracking which spans are open: a long document has
+    // thousands of them, and checking every span at every cut freezes the page.
+    const ordered = [...spans].sort((a, b) => a.start - b.start);
+    let open: WordSpan[] = [];
+    let next = 0;
+    return cuts.slice(0, -1).map((start, i) => {
+      const end = cuts[i + 1];
+      open = open.filter((s) => s.end > start);
+      while (next < ordered.length && ordered[next].start <= start) open.push(ordered[next++]);
+      const labels = [...new Set(open.flatMap((s) => s.labels))];
+      return { text: chars.slice(start, end).join(''),
+               style: labels.length ? highlightStyle(labels) : '',
+               title: labels.map((l) => this.listName(l)).join('\n') };
+    });
+  });
+
+  toggleList(label: string) {
+    const next = new Set(this.hiddenLists());
+    if (!next.delete(label)) next.add(label);
+    this.hiddenLists.set(next);
+  }
 
   /** Detected language of the analyzed text (e.g. "Arabic — Egyptian colloquial"). */
   inputLang = computed(() => {
@@ -144,9 +262,7 @@ export class App {
 
   /** Big summary for the right-hand panel: prefer the AI summary, else build
    *  a short one from the word scorer's high/low bands. */
-  summary = computed(() => {
-    const l = this.llm();
-    if (l?.summary) return l.summary;
+  wordSummary = computed(() => {
     const d = this.dict();
     if (!d) return '';
     const b = this.t();
@@ -157,7 +273,7 @@ export class App {
     if (highs.length) parts.push(`${b.higher} ${highs.map(name).join(', ')}.`);
     if (lows.length) parts.push(`${b.lower} ${lows.map(name).join(', ')}.`);
     const task = d.lta.traits['TASK']?.band;
-    if (task && task !== 'Balanced') parts.push(`${name('TASK')}: ${this.bandLabel(task)}.`);
+    if (task && task !== 'Balanced' && task !== 'Too few words') parts.push(`${name('TASK')}: ${this.bandLabel(task)}.`);
     return parts.join(' ');
   });
 
@@ -298,12 +414,96 @@ export class App {
   async pasteFromClipboard() {
     try {
       const clip = await navigator.clipboard.readText();
-      if (clip) this.text.set(clip);
+      if (clip) { this.text.set(clip); this.detectSpeeches(clip); }
     } catch { /* clipboard blocked — user can paste manually */ }
+  }
+
+  /** "Barack Obama — President of the United States of America (spoke in Arabic)". */
+  speechLabel(s: Speech): string {
+    const b = this.t();
+    if (s.kind === 'chair') return b.chairRemarks;
+    const who = s.title ? `${s.speaker} — ${s.title}` : s.speaker;
+    return s.spoke_in ? `${who} (${b.spokeIn.replace('{x}', s.spoke_in)})` : who;
+  }
+
+  /** Show one speaker's text in the box, or the whole document for ''. */
+  pickSpeech(id: string) {
+    this.selectedSpeech.set(id);
+    const speech = this.docSpeeches().find((s) => s.id === id);
+    this.text.set(speech ? speech.text : this.fullText);
+  }
+
+  private setSpeeches(text: string, speeches: Speech[]) {
+    this.fullText = text;
+    this.docSpeeches.set(speeches);
+    this.selectedSpeech.set('');
+    this.speechScores.set(null);
+  }
+
+  /** Look for several speakers in pasted text; a short paste can't hold a record. */
+  detectSpeeches(text: string) {
+    if (text.length < 1000) { this.setSpeeches(text, []); return; }
+    this.http.post<{ speeches: Speech[] }>(`${API}/split-speeches`, { text }).subscribe({
+      next: (r) => this.setSpeeches(text, r.speeches),
+    });
+  }
+
+  /** The textarea has the pasted text only after the paste event finishes. */
+  onTextPaste() {
+    setTimeout(() => this.detectSpeeches(this.text()));
+  }
+
+  /** Word-score every speaker at once, for comparing them side by side. */
+  scoreAllSpeeches() {
+    const speeches = this.docSpeeches().filter((s) => s.kind === 'speech');
+    this.scoringSpeeches.set(true);
+    this.http.post<{ results: DictResult[] }>(`${API}/analyze/batch`, { texts: speeches.map((s) => s.text) }).subscribe({
+      next: (r) => {
+        this.speechScores.set(speeches.map((speech, i) => ({ speech, traits: r.results[i].lta.traits })));
+        this.scoringSpeeches.set(false);
+      },
+      error: (e) => { this.error.set(this.msg(e)); this.scoringSpeeches.set(false); },
+    });
+  }
+
+  /** Put an uploaded file's text in the box, where it can be checked before analyzing. */
+  uploadSpeech(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';  // so choosing the same file again fires "change"
+    if (!file) return;
+    this.uploadError.set('');
+    this.uploadedName.set('');
+    if (file.size > 50 * 1024 * 1024) {
+      this.uploadError.set(this.t().uploadErrors['file-too-big']);
+      return;
+    }
+    this.uploading.set(true);
+    this.http.post<{ text: string; speeches: Speech[] }>(`${API}/extract-text`, file, {
+      params: { filename: file.name },
+      headers: { 'Content-Type': 'application/octet-stream' },
+    }).subscribe({
+      next: (r) => {
+        this.text.set(r.text);
+        this.setSpeeches(r.text, r.speeches);
+        this.uploadedName.set(file.name);
+        this.uploading.set(false);
+      },
+      error: (e) => {
+        const errors = this.t().uploadErrors;
+        this.uploadError.set(errors[e?.error?.detail] ?? errors['file-unreadable']);
+        this.uploading.set(false);
+      },
+    });
   }
 
   clearText() {
     this.text.set('');
+    this.setSpeeches('', []);
+    this.analyzedSpeech.set('');
+    this.analyzedMixed.set(false);
+    this.uploadedName.set('');
+    this.uploadError.set('');
     this.dict.set(null);
     this.llm.set(null);
     this.stake.set(null);
@@ -316,6 +516,9 @@ export class App {
     if (!this.text().trim()) return;
     const snapshot = this.text();
     this.submittedText.set(snapshot);
+    const picked = this.docSpeeches().find((s) => s.id === this.selectedSpeech());
+    this.analyzedSpeech.set(picked ? this.speechLabel(picked) : '');
+    this.analyzedMixed.set(!picked && this.docSpeeches().length > 0);
     this.runDictionary(snapshot);
     this.runStakeholders(snapshot);
     if (this.meta()?.llm_available !== false) this.runLlm(snapshot);
@@ -336,7 +539,7 @@ export class App {
     if (!text.trim()) return;
     this.dictLoading.set(true); this.error.set('');
     this.http.post<DictResult>(`${API}/analyze`, { text }).subscribe({
-      next: (r) => { this.dict.set(r); this.dictLoading.set(false); },
+      next: (r) => { this.dict.set(r); this.dictText.set(text); this.dictLoading.set(false); },
       error: (e) => { this.error.set(this.msg(e)); this.dictLoading.set(false); },
     });
   }
@@ -374,7 +577,7 @@ export class App {
   }
 
   bandClass(band: string): string {
-    return 'band-' + (band || '').toLowerCase();
+    return 'band-' + (band || '').toLowerCase().replace(/ /g, '-');
   }
 
   bandLabel(band: string): string {
@@ -394,11 +597,56 @@ export class App {
     const b = this.t();
     const p = tr.percent ?? 0;
     if (tr.kind !== 'ratio') return `${p.toFixed(1)}% ${b.ofWords}`;
-    if (!((tr.high ?? 0) + (tr.low ?? 0) + (tr.task ?? 0) + (tr.group ?? 0))) return b.noListWords;
-    const [first, second] = trait === 'TASK'
+    if (!tr.hits) return b.noListWords;
+    if (tr.band === 'Too few words') return `${b.listWordsLabel}: ${tr.hits}`;
+    const [first, second] = this.listNames(trait);
+    return `${p.toFixed(0)}% ${first} / ${(100 - p).toFixed(0)}% ${second}`;
+  }
+
+  /** Display names of a two-list trait's lists, first list first. */
+  private listNames(trait: string): [string, string] {
+    const b = this.t();
+    return trait === 'TASK'
       ? [b.bands['Problem-solving'], b.bands['Relationship-building']]
       : [b.bands['High'], b.bands['Low']];
-    return `${p.toFixed(0)}% ${first} / ${(100 - p).toFixed(0)}% ${second}`;
+  }
+
+  /** "must ×3, every ×2, clear +4 more": a list's words, most used first. */
+  private wordsFound(found: Record<string, number> | undefined, limit: number): string {
+    const b = this.t();
+    const words = Object.entries(found ?? {}).sort((x, y) => y[1] - x[1]);
+    if (!words.length) return b.noneFound;
+    const shown = words.slice(0, limit).map(([w, n]) => (n > 1 ? `${w} ×${n}` : w)).join(', ');
+    return words.length > limit ? `${shown} ${b.moreWords.replace('{n}', String(words.length - limit))}` : shown;
+  }
+
+  /** Why a word-list trait got its result: its words, in relation to the speech's length. */
+  dictExplain(trait: string, tr: DictTrait, tokens: number, limit = 8): string {
+    const b = this.t();
+    const fill = (text: string, vars: Record<string, string | number>) =>
+      Object.entries(vars).reduce((out, [k, v]) => out.replace(`{${k}}`, String(v)), text);
+    const hits = tr.hits ?? 0;
+    if (tr.kind !== 'ratio') {
+      const found = tr.matches as Record<string, number>;
+      const share = hits
+        ? fill(b.reasonOnList, { hits, tokens, p: (tr.percent ?? 0).toFixed(1), words: this.wordsFound(found, limit) })
+        : fill(b.reasonNoneOnList, { tokens });
+      const verdict = tr.band === 'High' ? b.reasonAbove : tr.band === 'Low' ? b.reasonBelow
+        : tr.raw_band !== tr.band ? fill(b.reasonThin, { x: this.bandLabel(tr.raw_band ?? '') }) : b.reasonUsual;
+      return `${share} ${verdict}`;
+    }
+    const m = tr.matches as Record<string, Record<string, number>>;
+    const [firstKey, secondKey, firstN, secondN] = trait === 'TASK'
+      ? ['task', 'group', tr.task ?? 0, tr.group ?? 0] : ['high', 'low', tr.high ?? 0, tr.low ?? 0];
+    const [first, second] = this.listNames(trait);
+    const side = (name: string, n: number, key: string) =>
+      `${b.listOf.replace('{x}', name)} (${n}): ${this.wordsFound(m[key], limit)}.`;
+    const count = fill(b.reasonSplit, { hits, tokens });
+    const lists = hits ? ` ${side(first, firstN, firstKey)} ${side(second, secondN, secondKey)}` : '';
+    const verdict = tr.band === 'Too few words' ? b.tooFewNote
+      : firstN === secondN ? b.reasonTie
+      : fill(b.reasonWinner, { x: b.listOf.replace('{x}', firstN > secondN ? first : second) });
+    return `${count}${lists} ${verdict}`;
   }
 
   /** Open a printable window with the full analysis; the browser's print
@@ -434,12 +682,15 @@ export class App {
           ? `${this.esc(b.confidenceLevels[tt.confidence])} ${this.esc(b.confidenceLabel)}` : '';
         return `<tr><td>${this.esc(b.traitNames[tr])} (${tr})</td>
           <td>${this.esc(this.bandLabel(tt.band))}</td>
-          <td>${this.esc(this.dictValue(tr, tt))}</td><td>${conf}</td></tr>`;
+          <td>${this.esc(this.dictValue(tr, tt))}
+            <div class="rat">${this.esc(this.dictExplain(tr, tt, d.lta.tokens, Infinity))}</div></td><td>${conf}</td></tr>`;
       }).join('');
       const vicsRows = this.vicsList().map((v) =>
         `<tr><td>${this.esc(v.code)}</td><td>${v.value.toFixed(2)}</td></tr>`).join('');
       word = `<h2>${this.esc(b.pdfWordHeading)}</h2>
+        <p class="rat">${this.esc(b.wordBlockDesc)}</p>
         <h3>${this.esc(b.personalityHeading)}</h3>
+        <p>${this.esc(b.textLengthLabel)}: ${d.lta.tokens}</p>
         <table>${traitRows}</table>
         <p>${this.esc(b.wordConfNote)}</p>
         <h3>${this.esc(b.politicsHeading)}</h3>
@@ -460,7 +711,9 @@ export class App {
           <p class="rat"><em>${this.esc(b.whyScore)}</em> ${this.esc(tt.rationale)}</p>
         </div>`;
       }).join('');
-      ai = `<h2>${this.esc(b.pdfAiHeading)}</h2>${style}${summ}${rows}`;
+      const excerpt = l.excerpted ? `<p class="rat">${this.esc(this.excerptNote(l.excerpted))}</p>` : '';
+      ai = `<h2>${this.esc(b.pdfAiHeading)}</h2>
+        <p class="rat">${this.esc(b.aiBlockDesc)}</p>${excerpt}${style}${summ}${rows}`;
     }
 
     let stake = '';
@@ -473,8 +726,9 @@ export class App {
              (${r.confidence}%) — ${this.esc(r.reasoning)}</p>
           <p class="rat"><em>${this.esc(b.likelyResponse)}</em> ${this.esc(r.response)}</p>
         </div>`).join('');
-      stake = `<h2>${this.esc(b.stakeHeading)}</h2>
-        <p>${this.esc(b.stakeIntro)}</p>${rows}`;
+      stake = `<h2>${this.esc(b.stakeHeading)}${st.method === 'llm' ? ` (${this.esc(b.pdfAiHeading)})` : ''}</h2>
+        <p>${this.esc(b.stakeIntro)}</p>
+        ${st.excerpted ? `<p class="rat">${this.esc(this.excerptNote(st.excerpted))}</p>` : ''}${rows}`;
     }
 
     return `<!doctype html><html dir="${dir}"><head><meta charset="utf-8">
@@ -487,8 +741,11 @@ export class App {
         h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #555; margin: 14px 0 4px; }
         table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; }
         td { border: 1px solid #ccc; padding: 5px 8px; font-size: 13px; }
-        .quote { white-space: pre-wrap; background: #f6f6f6; border: 1px solid #ddd;
-          border-radius: 6px; padding: 10px 12px; font-size: 12px; }
+        .quote { white-space: pre-line; background: #f6f6f6; border: 1px solid #ddd;
+          border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.8; }
+        .hl { padding: 0 1px 3px; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .hl-legend { font-size: 11px; line-height: 2; margin: 6px 0; }
+        .hl-legend .hl { margin-inline-end: 10px; }
         .ai-row { margin: 8px 0; }
         .rat { color: #333; font-size: 12px; margin: 2px 0 0; }
         .foot { margin-top: 28px; color: #888; font-size: 11px; }
@@ -496,7 +753,14 @@ export class App {
       <h1>${this.esc(b.pdfDocTitle)}</h1>
       <h2>${this.esc(b.pdfInputHeading)}</h2>
       ${this.inputLang() ? `<p>${this.esc(b.inputLangLabel)} ${this.esc(this.inputLang())}</p>` : ''}
-      <div class="quote" dir="auto">${this.esc(this.submittedText())}</div>
+      ${this.analyzedSpeech() ? `<p><strong>${this.esc(b.speakerLabel)}</strong> ${this.esc(this.analyzedSpeech())}</p>` : ''}
+      ${this.analyzedMixed() ? `<p><strong>⚠ ${this.esc(b.mixedWarning)}</strong></p>` : ''}
+      ${this.highlightLegend().some((l) => !l.hidden) ? `<p class="hl-legend">${this.highlightLegend()
+        .filter((l) => !l.hidden)
+        .map((l) => `<span class="hl" style="${l.style}">${this.esc(l.name)} (${l.count})</span>`).join('')}</p>
+        <p class="rat">${this.esc(b.highlightKey)}</p>` : ''}
+      <div class="quote" dir="auto">${this.highlightPieces().map((p) => p.style
+        ? `<span class="hl" style="${p.style}">${this.esc(p.text)}</span>` : this.esc(p.text)).join('')}</div>
       ${word}
       ${ai}
       ${stake}

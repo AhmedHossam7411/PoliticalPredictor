@@ -25,11 +25,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from predictor import llm
+from predictor.highlight import scorer_spans
 from predictor.lta import RATIO_TRAITS
 from predictor.score import analyze_with_bands, default_norm, ratio_band
 
 from .generate import LANGUAGES, TRAITS, generate
-from .highlight import scorer_spans
 
 HERE = Path(__file__).resolve().parent
 RUNS = HERE / "results" / "runs.jsonl"

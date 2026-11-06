@@ -1,51 +1,70 @@
-# Self-confidence, HIGH markers: certainty, resolve, courage (Modern Standard + Egyptian).
-# Draft rendering of the English SC_high list; needs specialist review.
-واثق
-واثقون
-ثقة
+# Self-confidence, high. Every entry translates a word on the English list (see
+# translations_en_ar.csv) or is a form of one, including Egyptian forms. Draft.
+# Base forms; the matcher peels prefixes and suffixes. *x means a word ending in x.
+مطمئن
+طمأنة
 متأكد
-مؤكد
-أكيد
-بالتأكيد
 يقين
-متيقن
+واثق
+ثقة
 مقتنع
 قناعة
 حازم
-حزم
-بحزم
-حاسم
+حسم
 مصمم
-تصميم
-عازم
-عزم
 عزيمة
+جسور
 ثابت
-بثبات
-راسخ
-صامد
-صمود
+بحزم
 حتمي
-حتما
-قطعا
-بلا شك
-دون شك
-بدون شك
-من غير شك
-لا شك
+معصوم
+عازم
+بعزم
+عزم
+صامد
+لا لبس فيه
+لا جدال فيه
 لا يتزعزع
-لا أخاف
-لا نخاف
-مش خايف
+بلا شك
+مؤكد
+جلي
+أكيد
+حتما
 جريء
-جرأة
 بجرأة
-شجاع
 شجاعة
-بشجاعة
+شجاع
+باسل
+بسالة
+جرأة
+قطعي
+قطعا
+قاطع
+قطعيا
+مطلق
+تماما
 ملتزم
 التزام
 مثابر
 مثابرة
+ثابر
+عنيد
 إصرار
+واثقون
+بالتأكيد
+متيقن
+حزم
+حاسم
+تصميم
+بثبات
+راسخ
+صمود
+دون شك
+بدون شك
+من غير شك
+لا شك
+لا أخاف
+لا نخاف
+مش خايف
+بشجاعة
 مصر على

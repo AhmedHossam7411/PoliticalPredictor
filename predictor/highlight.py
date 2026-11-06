@@ -11,10 +11,10 @@ from __future__ import annotations
 
 import re
 
-from predictor import arabic
-from predictor.dictionaries import lta_dictionaries, lta_dictionaries_ar
-from predictor.lta import score_lta
-from predictor.nlp import compile_phrases, nlp, single_hit
+from . import arabic
+from .dictionaries import lta_dictionaries, lta_dictionaries_ar
+from .lta import score_lta
+from .nlp import compile_phrases, nlp, single_hit
 
 # Lexicon -> highlight label, in the order the scorer uses them.
 LISTS = {
@@ -76,18 +76,9 @@ def _ar_spans(text: str) -> list[dict]:
     d = lta_dictionaries_ar()
     spans = []
     for key, label in LISTS.items():
-        entries = frozenset(d[key])
-        short, long, multi = arabic.compile_lexicon(entries)  # count_terms
-        for s, e, tok in toks:
-            if any(v in long for v in arabic.variants(tok)) or \
-               any(v in short for v in arabic.light_variants(tok)):
-                spans.append({"start": s, "end": e, "labels": [label]})
-        for words, _entry in multi:
-            n = len(words)
-            for i in range(len(toks) - n + 1):
-                if all(arabic._matches(toks[i + k][2], words[k]) for k in range(n)):
-                    spans.append({"start": toks[i][0], "end": toks[i + n - 1][1],
-                                  "labels": [label]})
+        words = [t[2] for t in toks]
+        spans += [{"start": toks[i][0], "end": toks[j][1], "labels": [label]}
+                  for i, j, _ in arabic.term_hits(words, frozenset(d[key]))]
     return spans
 
 

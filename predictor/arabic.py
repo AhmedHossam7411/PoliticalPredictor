@@ -103,45 +103,85 @@ def _matches(token: str, entry: str) -> bool:
     return entry in variants(token)
 
 
+# Institution names aren't trait words, just as English proper nouns don't count:
+# the "united" in "United Nations", the "assembly" in "General Assembly".
+_NAMES = tuple(tuple(tokens(n)) for n in (
+    "الأمم المتحدة", "الولايات المتحدة", "المملكة المتحدة", "الإمارات العربية المتحدة",
+    "الجمعية العامة", "الأمين العام", "مجلس الأمن"))
+# Words that look like an inflected entry but aren't: قياسي "record" is not قياس "measure".
+_NOT_TERMS = frozenset(tokens("قياسي قياسية قياسيا"))
+# Words ending like a pronoun clitic without being "our"/"their".
+_NOT_CLITIC = frozenset(tokens("""
+هنا هناك أنا أنت حسنا أحيانا أمنا سنا زمنا ثمنا مكانا حينا بيانا إنسانا عنوانا عدوانا
+مهم أهم سهم درهم فهم يفهم تفهم نفهم متهم وهم
+"""))
+
+
 @lru_cache(maxsize=64)
-def compile_lexicon(entries: frozenset[str]) -> tuple[dict, dict, tuple]:
-    """Split a raw lexicon into short/long single-word maps and multi-word phrases.
+def compile_lexicon(entries: frozenset[str]) -> tuple[dict, dict, tuple, tuple]:
+    """Split a raw lexicon into short/long single words, phrases and word endings ("*نا").
 
     Maps go normalized form -> original entry, so reported matches stay readable.
     """
     short: dict[str, str] = {}
     long: dict[str, str] = {}
     multi: list[tuple[tuple[str, ...], str]] = []
+    endings: list[tuple[str, str]] = []
     for entry in entries:
         words = tuple(tokens(entry))
-        if len(words) == 1:
+        if entry.startswith("*"):
+            endings += [(w, entry) for w in words]
+        elif len(words) == 1:
             (short if len(words[0]) <= 2 else long)[words[0]] = entry
         elif words:
             multi.append((words, entry))
-    return short, long, tuple(multi)
+    return short, long, tuple(multi), tuple(endings)
 
 
-def count_terms(text: str, entries: frozenset[str]) -> tuple[int, dict[str, int]]:
-    """Count lexicon hits in Arabic text (one hit per token for single words)."""
-    toks = tokens(text)
-    short, long, multi = compile_lexicon(entries)
-    hits: dict[str, int] = {}
-    total = 0
-    for tok in toks:
-        hit = next((long[v] for v in sorted(variants(tok), key=len, reverse=True)
-                    if v in long), None)
-        if hit is None:
-            hit = next((short[v] for v in light_variants(tok) if v in short), None)
-        if hit is not None:
-            hits[hit] = hits.get(hit, 0) + 1
-            total += 1
+def _ends_with_clitic(tok: str, ending: str) -> bool:
+    # Peel only و ف and the article: "وبلادنا" is a word ending in -نا, "هنا" is not.
+    return tok.endswith(ending) and len(tok) - len(ending) >= 2 and not (
+        light_variants(tok) & _NOT_CLITIC)
+
+
+def term_hits(toks: list[str], entries: frozenset[str]):
+    """Yield (first token, last token, entry) for each lexicon hit, one per token for single words."""
+    short, long, multi, endings = compile_lexicon(entries)
     n = len(toks)
-    for words, entry in multi:
+    masked: set[int] = set()
+    for words in _NAMES:
         L = len(words)
         for i in range(n - L + 1):
             if all(_matches(toks[i + k], words[k]) for k in range(L)):
-                hits[entry] = hits.get(entry, 0) + 1
-                total += 1
+                masked.update(range(i, i + L))
+    for i, tok in enumerate(toks):
+        if i in masked:
+            continue
+        forms = variants(tok)
+        hit = None
+        if not forms & _NOT_TERMS:
+            hit = next((long[v] for v in sorted(forms, key=len, reverse=True) if v in long), None)
+            if hit is None:
+                hit = next((short[v] for v in light_variants(tok) if v in short), None)
+        if hit is None:
+            hit = next((e for w, e in endings if _ends_with_clitic(tok, w)), None)
+        if hit is not None:
+            yield i, i, hit
+    for words, entry in multi:
+        L = len(words)
+        for i in range(n - L + 1):
+            if not masked.intersection(range(i, i + L)) and all(
+                    _matches(toks[i + k], words[k]) for k in range(L)):
+                yield i, i + L - 1, entry
+
+
+def count_terms(text: str, entries: frozenset[str]) -> tuple[int, dict[str, int]]:
+    """Count lexicon hits in Arabic text."""
+    hits: dict[str, int] = {}
+    total = 0
+    for _, _, entry in term_hits(tokens(text), entries):
+        hits[entry] = hits.get(entry, 0) + 1
+        total += 1
     return total, hits
 
 
