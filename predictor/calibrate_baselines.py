@@ -6,7 +6,7 @@ grounded in how each stakeholder actually thinks and speaks -- not just the shor
 bio -- without shipping ~10k-character speeches into every request.
 
 Run once (re-run to refresh):  python -m predictor.calibrate_baselines
-Requires a configured AI provider (GROQ_API_KEY, or LLM_BASE_URL; see llm.py).
+Requires the local AI server (Karnak by default; see llm.py).
 """
 from __future__ import annotations
 

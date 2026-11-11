@@ -22,7 +22,7 @@ import httpx
 
 from .llm import (_LANG_NAMES, FALLBACK_MODELS, LLMNotConfigured, available, estimate_tokens,
                   fit_speech, input_note, chat_json, split_parts,
-                  not_configured_reason)
+                  not_configured_reason, not_running_reason)
 from . import store as _storage
 
 # Built-in decision profiles + baseline speeches are bundled, read-only files
@@ -752,7 +752,8 @@ def react(text: str, language: str = "en") -> dict:
         except (httpx.HTTPError, LLMNotConfigured, json.JSONDecodeError,
                 KeyError, TypeError, ValueError) as exc:
             # Fall back rather than fail the request -- but say why.
-            reason = ("AI provider rate limit reached (HTTP 429)" if
+            reason = (not_running_reason() if isinstance(exc, httpx.ConnectError)
+                      else "AI provider rate limit reached (HTTP 429)" if
                       isinstance(exc, httpx.HTTPStatusError)
                       and exc.response.status_code == 429
                       else f"{type(exc).__name__}: {exc}")[:300]

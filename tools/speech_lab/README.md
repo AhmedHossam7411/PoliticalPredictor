@@ -18,7 +18,7 @@ Delete this folder to remove it.
 
 ## Run
 
-From the repo root, with the same AI settings as the predictor (`GROQ_API_KEY`):
+From the repo root, with the local AI (Karnak) running, as for the predictor:
 
     python -m uvicorn tools.speech_lab.server:app --port 8100
 

@@ -30,7 +30,7 @@ How PoliticalPredictor addresses the OWASP Top 10 (2021).
 | A07 | Identification & Auth Failures | Constant-time credential check, captcha, brute-force rate limit (`LOGIN_MAX_ATTEMPTS` per `LOGIN_WINDOW_SECONDS` per IP), expiring tokens. |
 | A08 | Data Integrity | JWTs are signed and verified; captcha answers verified server-side (single-use). |
 | A09 | Logging & Monitoring | (Roadmap) add structured auth-event logging for Contabo. |
-| A10 | SSRF | No user-controlled outbound URLs; the only outbound call is to the fixed Groq endpoint. |
+| A10 | SSRF | No user-controlled outbound URLs. The AI runs on the same machine (Karnak via llama.cpp or Ollama); the only outbound calls are the news search for stakeholder profiles. |
 
 ## Environment variables (production)
 | Var | Purpose |

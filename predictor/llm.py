@@ -1,14 +1,13 @@
-"""Groq LLM scorer for LTA traits -- the semantic complement to the dictionary.
+"""AI scorer for LTA traits -- the semantic complement to the dictionary.
 
 The dictionary scorer only sees vocabulary; this reads *meaning*, so it rates a
 speech that is "high power" in tone even when it uses no literal power words.
 Returns the same seven traits on a 0-100 scale plus a short rationale each.
 
-Talks to any OpenAI-compatible chat API via httpx (no extra dependency).
-Default is Groq (needs GROQ_API_KEY). To use another provider or a self-hosted
-model (Ollama, vLLM, Azure OpenAI...), set LLM_BASE_URL (e.g.
-http://ollama:11434/v1), LLM_API_KEY if it needs one, and LLM_MODEL.
-Model default openai/gpt-oss-120b (llama-3.3-70b-versatile was retired by Groq).
+The AI is Karnak-6B running on this computer (llama.cpp's llama-server on port
+8080), so speech text never leaves the machine. Any other OpenAI-compatible
+server can be used instead by setting LLM_BASE_URL, LLM_MODEL and, if that
+server needs one, LLM_API_KEY.
 """
 from __future__ import annotations
 
@@ -21,26 +20,25 @@ import httpx
 
 from . import arabic
 
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-BASE_URL = (os.environ.get("LLM_BASE_URL") or GROQ_BASE_URL).rstrip("/")
+LOCAL_BASE_URL = "http://127.0.0.1:8080/v1"
+BASE_URL = (os.environ.get("LLM_BASE_URL") or LOCAL_BASE_URL).rstrip("/")
 CHAT_URL = BASE_URL + "/chat/completions"
-IS_GROQ = BASE_URL == GROQ_BASE_URL
-DEFAULT_MODEL = "openai/gpt-oss-120b"
-# Self-hosted models can be slow; raise this for CPU-only servers.
-TIMEOUT = float(os.environ.get("LLM_TIMEOUT") or 60)
-# Most input tokens to send in one call. Groq's free tier refuses more than about
-# 8k a minute; raise this for a paid tier or a model with a larger context.
-MAX_INPUT_TOKENS = int(os.environ.get("LLM_MAX_INPUT_TOKENS") or (7500 if IS_GROQ else 14000))
+DEFAULT_MODEL = "karnak-6b"
+# A model on an ordinary computer is slow: allow up to an hour per call.
+TIMEOUT = float(os.environ.get("LLM_TIMEOUT") or 3600)
+# Most input tokens to send in one call. Karnak is started with a 16k context,
+# which leaves room for the prompt and the answer.
+MAX_INPUT_TOKENS = int(os.environ.get("LLM_MAX_INPUT_TOKENS") or 7500)
 _MIN_SPEECH_TOKENS = 500
 _EXCERPTS = 8
 
 
 def _api_key() -> str | None:
-    return os.environ.get("LLM_API_KEY") or os.environ.get("GROQ_API_KEY")
+    return os.environ.get("LLM_API_KEY")
 
 
 def _model() -> str:
-    return os.environ.get("LLM_MODEL") or os.environ.get("GROQ_MODEL") or DEFAULT_MODEL
+    return os.environ.get("LLM_MODEL") or DEFAULT_MODEL
 
 TRAITS = ("BACE", "PWR", "CC", "SC", "TASK", "DIS", "IGB")
 
@@ -181,21 +179,22 @@ class LLMNotConfigured(RuntimeError):
 
 
 def available() -> bool:
-    # Groq always needs a key; a self-hosted server (LLM_BASE_URL) may not.
-    return bool(_api_key()) or not IS_GROQ
+    # The local server needs no key; whether it is running shows on the first call.
+    return bool(BASE_URL)
 
 
 def not_configured_reason() -> str:
-    return "No AI provider configured (set GROQ_API_KEY, or LLM_BASE_URL for a self-hosted model)."
+    return "No AI server configured (set LLM_BASE_URL)."
 
 
-# Groq's free tier caps tokens per minute *per model* (8k each). The trait
-# scorer and the stakeholder call (~7k tokens) fire together, so a 429 is
-# routine; other models have their own quotas and are tried first. These are
-# Groq model names, so other providers default to no fallbacks.
-FALLBACK_MODELS = [m.strip() for m in (
-    os.environ.get("LLM_FALLBACK_MODELS") or os.environ.get("GROQ_FALLBACK_MODELS")
-    or ("openai/gpt-oss-20b,qwen/qwen3.8-27b" if IS_GROQ else "")).split(",") if m.strip()]
+def not_running_reason() -> str:
+    return ("The local AI (Karnak) is not running. Start it with: llama-server -m "
+            "Karnak-6B-v1.0.Q4_K_M.gguf -c 16384 --port 8080 --alias karnak-6b")
+
+
+# Other models to try when the main one fails (comma-separated). None by default:
+# the local server runs a single model.
+FALLBACK_MODELS = [m.strip() for m in (os.environ.get("LLM_FALLBACK_MODELS") or "").split(",") if m.strip()]
 
 
 def _retry_after(resp: httpx.Response) -> float:
@@ -257,6 +256,10 @@ def score_llm(text: str, model: str | None = None, timeout: float | None = None,
         {"role": "system", "content": system + excerpt_note},
         {"role": "user", "content": f"Score this speech:\n\n{sent}"},
     ], temperature=0.2, model=model, timeout=timeout)
+    # Small models sometimes misspell a key; accept the near-misses.
+    for k in list(data):
+        if k != "leadership_style" and k.replace("_", "").lower() == "leadershipstyle":
+            data.setdefault("leadership_style", data.pop(k))
     data["model"] = model
     data["excerpted"] = excerpted
     data["method"] = "llm"

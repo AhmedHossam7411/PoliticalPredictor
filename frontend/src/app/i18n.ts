@@ -94,7 +94,7 @@ const en: Bundle = {
   howIntro: 'Paste a speech (or pick a sample) and analyze it two ways:',
   wordScorerName: 'Word scorer',
   wordScorerDesc: 'counts the kinds of words used and compares them with a set of sample leaders. Fast and fully transparent, but it can miss meaning: a leader who sounds aggressive without using aggressive words may score low.',
-  aiScorerName: 'AI scorer (Groq)',
+  aiScorerName: 'AI scorer (Karnak, on this computer)',
   aiScorerDesc: 'an AI reads the whole speech and judges its meaning, the way a human analyst would. Better with tone and nuance, and it gives a reason for every score (0–100, where about 50 is average for a world leader).',
   howToRead: 'How to read the labels',
   howToReadBody: 'High / Moderate / Low compares this leader with other leaders — it does not mean good or bad, just stronger or weaker than average on that trait. The word scorer compares against the sample speeches; the AI scorer gives a 0–100 number instead.',
@@ -275,7 +275,7 @@ const en: Bundle = {
     'Summary': 'An overall sense of whether the leader credits themselves (positive) or others (negative).',
   },
   errReach: 'Cannot reach the analyzer at {api} — make sure the backend is running.',
-  errOff: 'The AI scorer is not switched on (the server is missing its GROQ_API_KEY).',
+  errOff: 'The local AI (Karnak) is not running. Start it in its own Terminal window, then try again.',
   errGeneric: 'Something went wrong with the request.',
 };
 
@@ -288,7 +288,7 @@ const ar: Bundle = {
   howIntro: 'الصق خطابًا (أو اختر نموذجًا) وحلّله بطريقتين:',
   wordScorerName: 'أداة تحليل الكلمات',
   wordScorerDesc: 'تُحصي أنواع الكلمات المستخدمة وتقارنها بمجموعة من القادة المرجعيين. سريعة وشفّافة تمامًا، لكنها قد تُغفل المعنى: فالقائد الذي تبدو لهجته عدائية دون أن يستخدم كلمات عدائية قد يحصل على درجة منخفضة.',
-  aiScorerName: 'أداة الذكاء الاصطناعي (Groq)',
+  aiScorerName: 'أداة الذكاء الاصطناعي (كرنك، على هذا الجهاز)',
   aiScorerDesc: 'يقرأ الذكاء الاصطناعي الخطاب كاملًا ويحكم على معناه كما يفعل المحلّل البشري. أفضل في فهم النبرة والفروق الدقيقة، ويقدّم سببًا لكل درجة (من 0 إلى 100، حيث 50 تقريبًا هو المتوسط لقائد عالمي).',
   howToRead: 'كيف تقرأ التصنيفات',
   howToReadBody: 'عالٍ / متوسط / منخفض يقارن هذا القائد بقادة آخرين — وهو لا يعني جيّدًا أو سيّئًا، بل فقط أقوى أو أضعف من المتوسط في تلك السمة. أداة الكلمات تقارن بخطابات العيّنة، بينما تعطي أداة الذكاء الاصطناعي رقمًا من 0 إلى 100.',
@@ -469,7 +469,7 @@ const ar: Bundle = {
     'Summary': 'انطباع عام حول ما إذا كان القائد ينسب الفضل لنفسه (موجب) أم للآخرين (سالب).',
   },
   errReach: 'تعذّر الوصول إلى المحلّل على {api} — تأكّد من تشغيل الخادم الخلفي.',
-  errOff: 'أداة الذكاء الاصطناعي غير مفعّلة (يفتقر الخادم إلى مفتاح GROQ_API_KEY).',
+  errOff: 'الذكاء الاصطناعي المحلي (كرنك) غير مشغّل. شغّله في نافذة Terminal خاصة به ثم أعد المحاولة.',
   errGeneric: 'حدث خطأ ما في الطلب.',
 };
 

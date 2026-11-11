@@ -275,11 +275,13 @@ def analyze_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_a
 
 @app.post("/analyze/llm")
 def analyze_llm(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
-    """Semantic LTA scoring via Groq (reads meaning, not keywords)."""
+    """Semantic LTA scoring by the local AI (reads meaning, not keywords)."""
     try:
         return llm.score_llm(req.text, language=req.language)
     except llm.LLMNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail=llm.not_running_reason())
     except httpx.HTTPError as exc:
         raise HTTPException(status_code=502, detail=f"LLM provider error: {exc}")
     except (json.JSONDecodeError, KeyError) as exc:

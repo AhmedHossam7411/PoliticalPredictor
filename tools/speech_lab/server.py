@@ -6,7 +6,7 @@ both of the predictor's scorers rate it -> target vs measured, logged per run.
 Run from the repo root:
     python -m uvicorn tools.speech_lab.server:app --port 8100
 then open http://127.0.0.1:8100. Local tool: no login, binds to localhost.
-Uses the same AI settings as the predictor (GROQ_API_KEY or LLM_*).
+Uses the same AI settings as the predictor (local Karnak, or LLM_*).
 """
 from __future__ import annotations
 

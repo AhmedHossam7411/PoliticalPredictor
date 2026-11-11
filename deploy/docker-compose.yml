@@ -1,6 +1,6 @@
 # PoliticalPredictor: the whole system on one machine.
-#   docker compose up -d --build                     # Groq / external AI provider
-#   docker compose --profile local-ai up -d --build  # + AI model running on this machine
+#   docker compose --profile local-ai up -d --build  # with Karnak running on this machine
+#   docker compose up -d --build                     # with another AI server (see INSTALL.md)
 # Settings come from .env (copy .env.example). See INSTALL.md.
 name: politicalpredictor
 
@@ -54,8 +54,8 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # Optional: run the AI model on this machine (no data leaves it).
-  # Enable with --profile local-ai and set LLM_BASE_URL=http://ollama:11434/v1.
+  # The AI model (Karnak-6B) on this machine, so no data leaves it.
+  # Enabled with --profile local-ai; .env points LLM_BASE_URL here.
   ollama:
     image: ollama/ollama:latest
     profiles: ["local-ai"]

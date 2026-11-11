@@ -24,9 +24,8 @@ running Docker Desktop.
 
 | Setup | CPU / RAM | Disk |
 |-------|-----------|------|
-| Cloud AI (option A or C below) | 2 cores, 4 GB RAM | 10 GB |
 | AI on this machine, with NVIDIA GPU (16 GB+ video memory) | 4 cores, 16 GB RAM | 30 GB |
-| AI on this machine, CPU only | 8 cores, 32 GB RAM | 30 GB |
+| AI on this machine, CPU only | 4 cores, 16 GB RAM | 20 GB |
 
 CPU only works but is slow: an analysis can take several minutes.
 
@@ -62,41 +61,27 @@ or still set to a built-in default. That's deliberate.
 
 Keep `.env` private: it holds every secret of the installation.
 
-## 3. Choose the AI
+## 3. The AI (Karnak-6B, on this machine)
 
 The dictionary scoring (LTA and VICS) always runs inside the `api`
-container. Separately, the AI reads each speech for trait scores and
-stakeholder reactions. Pick where that AI runs:
+container. Separately, an AI reads each speech for trait scores and
+stakeholder reactions. That AI is **Karnak-6B** (Applied Innovation Center,
+Egypt; Apache 2.0), running in the `ollama` container on this machine.
+**No speech text leaves the machine.**
 
-### Option A: Groq cloud (simplest)
-
-Create an API key at <https://console.groq.com> and set:
-
-```
-GROQ_API_KEY=gsk_...
-```
-
-**Data note:** the full speech text is sent to Groq, a US company. The free
-tier allows about 8,000 tokens per minute. That is enough for one user at a
-time. When it runs out, the app waits or switches to a fallback model. For
-several users, use Groq's paid Developer tier.
-
-### Option B: AI on this machine (no data leaves it)
-
-Uses Ollama with OpenAI's open-weight `gpt-oss` model. In `.env`, remove
-`GROQ_API_KEY` and set:
+`.env.example` already has the settings:
 
 ```
 LLM_BASE_URL=http://ollama:11434/v1
-LLM_MODEL=gpt-oss:20b
-LLM_TIMEOUT=300
+LLM_MODEL=hf.co/mradermacher/Karnak-6B-v1.0-GGUF:Q4_K_M
+LLM_TIMEOUT=3600
 ```
 
 Start with the `local-ai` profile (section 5). Then download the model
-once, about 14 GB:
+once, about 3.7 GB:
 
 ```bash
-docker compose --profile local-ai exec ollama ollama pull gpt-oss:20b
+docker compose --profile local-ai exec ollama ollama pull hf.co/mradermacher/Karnak-6B-v1.0-GGUF:Q4_K_M
 ```
 
 With an NVIDIA GPU, install the NVIDIA Container Toolkit
@@ -107,13 +92,14 @@ add the GPU file to every command:
 docker compose -f docker-compose.yml -f docker-compose.gpu.yml --profile local-ai up -d --build
 ```
 
-`gpt-oss:120b` gives the best results (the system was validated on it), but
-it needs a GPU with about 80 GB of memory. `gpt-oss:20b` is the practical
-choice for a single GPU.
+Karnak-6B runs on an ordinary computer without a graphics card, but
+slowly: an analysis can take 10 minutes or more. Its trait scores are
+good; its stakeholder reactions are weaker than a large model's.
 
-### Option C: another OpenAI-compatible server
+### Another server instead
 
-For example vLLM, an existing in-house model gateway, or Azure OpenAI:
+To use a different OpenAI-compatible server (for example an in-house vLLM
+running a larger model), point the settings at it:
 
 ```
 LLM_BASE_URL=https://your-server/v1
@@ -123,7 +109,7 @@ LLM_MODEL=<model name on that server>
 
 The server must support JSON output (`response_format: json_object`).
 
-### No AI configured
+### AI not running
 
 The app still works. Dictionary scores are complete. Stakeholder reactions
 fall back to a basic keyword method, and the app says so on screen. That
@@ -153,8 +139,8 @@ The system has one login, shared by everyone who uses it.
 ## 5. Start
 
 ```bash
-docker compose up -d --build                     # options A / C
-docker compose --profile local-ai up -d --build  # option B
+docker compose --profile local-ai up -d --build  # Karnak on this machine
+docker compose up -d --build                     # only with "Another server instead"
 ```
 
 The first build takes 5–10 minutes. Check that everything is up:
@@ -183,8 +169,8 @@ Don't expose port 8080 directly to the internet.
 
 ## 7. Day-to-day operation
 
-Run all commands from the `deploy` folder. Add `--profile local-ai` if you
-use option B.
+Run all commands from the `deploy` folder. Add `--profile local-ai` unless
+you use "Another server instead".
 
 | Task | Command |
 |------|---------|
@@ -225,7 +211,7 @@ docker load -i politicalpredictor-<version>-images.tar
 Put `VERSION=<version>` in `.env`, using the version from the file name.
 Then start with `docker compose up -d`, **without** `--build`.
 
-For option B, you also need the model, which `ollama pull` can't download
+You also need the Karnak model, which `ollama pull` can't download
 offline. On a machine with internet, pull it, then copy the volume across:
 
 ```bash
@@ -242,7 +228,7 @@ docker run --rm -v politicalpredictor_ollama:/data -v "$PWD":/in alpine tar xzf 
 | `api` keeps restarting; log says `REQUIRE_SECRETS=1 but ...` | Fill in the settings it names in `.env`. |
 | `set POSTGRES_PASSWORD in .env` | `POSTGRES_PASSWORD` is empty. |
 | "Cannot reach the analyzer" | `api` is not running or still starting: check `docker compose ps` and `docker compose logs api`. |
-| Stakeholders show "Fallback" with "rate limit reached (HTTP 429)" | Groq free-tier limit. Wait a minute, use a paid tier, or option B. |
+| Stakeholders show "Fallback" with "not running" or "ConnectError" | The `ollama` container is not running or the model is not downloaded: start with `--profile local-ai` and run the `ollama pull` in section 3. |
 | Stakeholders show "Fallback" with a timeout | The local model is too slow. Raise `LLM_TIMEOUT`, add a GPU, or use a smaller model. |
 | Login says "Too many attempts" | `LOGIN_MAX_ATTEMPTS` failures from that computer. Wait `LOGIN_WINDOW_SECONDS` (default 5 minutes). |
 | Changed `POSTGRES_PASSWORD` after first start, now `api` can't connect | The database keeps its original password. Put the old one back, or reset the data with `docker compose down -v`. |
