@@ -171,7 +171,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
   border-radius: var(--radius-sm); white-space: nowrap; }
 .mode-badge.ai { background: #d6f5e1; color: #15803d; }
 .submitted { line-height: 1.85; white-space: pre-line; }
-.hl { padding: 0 1px 3px; border-radius: 2px; }
+.hl { padding: 1px 2px 4px; border-radius: 3px; -webkit-box-decoration-break: clone; box-decoration-break: clone; }
 .hl-legend { display: flex; flex-wrap: wrap; gap: 0.35rem; margin: 0 0 0.6rem; }
 button.hl-chip { background: transparent; color: var(--ink); border: 1px solid var(--line); padding: 0.2rem 0.45rem; font-size: 0.74rem; font-weight: 500; }
 button.hl-chip:hover { background: var(--surface2); }
@@ -225,6 +225,101 @@ button.hl-chip.off { opacity: 0.45; text-decoration: line-through; }
   font-size: 1.05rem; line-height: 1; cursor: pointer; font-weight: 700;
 }
 .sh-x:hover { color: #7f1d1d; background: transparent; }
+button.sh-name { background: transparent; border: none; padding: 0; color: inherit; font: inherit;
+  font-weight: inherit; cursor: pointer; text-align: start; }
+button.sh-name:hover { background: transparent; color: var(--accent); text-decoration: underline; }
+
+/* Stakeholder profile pop-up */
+.dz-backdrop { position: fixed; inset: 0; z-index: 1000; background: rgba(8, 20, 40, 0.6);
+  display: flex; align-items: center; justify-content: center; padding: 2vh 2vw; }
+.dz { background: var(--card); color: var(--ink); border-radius: 8px; width: min(1240px, 96vw);
+  height: min(92vh, 1000px); overflow: auto; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+  display: flex; flex-direction: column; }
+.dz-head { position: sticky; top: 0; z-index: 1; background: var(--card); display: flex;
+  align-items: center; gap: 1rem; padding: 1rem 1.4rem; border-bottom: 1px solid var(--line); }
+.dz-photo, .dz-avatar { width: 64px; height: 64px; border-radius: 50%; flex: none; object-fit: cover; }
+.dz-avatar { display: flex; align-items: center; justify-content: center; background: var(--accent);
+  color: #fff; font-weight: 700; font-size: 1.4rem; }
+.dz-title { flex: 1; min-width: 0; }
+.dz-title h2 { margin: 0; font-size: 1.35rem; }
+.dz-title p { margin: 0.2rem 0 0; }
+.dz-local { font-weight: 500; color: var(--muted); font-size: 1rem; margin-inline-start: 0.5rem; }
+button.dz-close { background: transparent; border: none; font-size: 1.8rem; line-height: 1;
+  padding: 0.2rem 0.5rem; color: var(--muted); }
+button.dz-close:hover { background: var(--surface2); color: var(--ink); }
+.dz-pad { padding: 1rem 1.4rem; }
+.dz-body { display: grid; grid-template-columns: 1.15fr 1fr; gap: 1.6rem; padding: 1.1rem 1.4rem; }
+@media (max-width: 860px) { .dz-body { grid-template-columns: 1fr; } }
+.dz-col section { margin-bottom: 1.3rem; }
+.dz-col h3 { font-size: 0.95rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent);
+  margin: 0 0 0.5rem; border-bottom: 1px solid var(--line); padding-bottom: 0.3rem; }
+.dz-col h4 { font-size: 0.82rem; color: var(--muted); margin: 0.7rem 0 0.35rem; }
+.dz-col p { line-height: 1.6; margin: 0 0 0.5rem; }
+.dz-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin-top: 0.45rem; }
+.dz-tag-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted);
+  margin-inline: 0.2rem 0.1rem; }
+.dz-tag-label:not(:first-child) { margin-inline-start: 0.7rem; }
+.dz-chip.type { background: #eef2ff; border-color: #c7d2fe; color: #3730a3; }
+.dz-chip.value { background: #fff7e6; border-color: #fcd9a0; color: #7c4a03; }
+button.dz-chip.link { cursor: pointer; font: inherit; font-size: 0.82rem; font-weight: 600; }
+button.dz-chip.link::after { content: ' ›'; }
+button.dz-chip.ally.link:hover { background: #d3efdf; }
+button.dz-chip.friction.link:hover { background: #fbdad7; }
+.dz-hint { font-size: 0.8rem; margin-top: 0.5rem; }
+.wp { margin-top: 0.6rem; border-top: 1px dashed var(--line); padding-top: 0.2rem; }
+.wp-boxes { display: flex; flex-wrap: wrap; gap: 0.3rem; margin: 0.2rem 0 0.35rem; }
+.wp-box { white-space: nowrap; }
+.dz-col p.wp-sum { font-size: 0.86rem; margin: 0 0 0.4rem; }
+.wp-files { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; font-size: 0.76rem; }
+.wp-file { display: inline-flex; align-items: center; gap: 0.2rem; max-width: 16rem; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; background: var(--surface2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 0.1rem 0.4rem; color: var(--muted); }
+button.wp-add, label.wp-upload { font-size: 0.76rem; padding: 0.15rem 0.5rem; cursor: pointer; }
+label.wp-upload { border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink); font-weight: 600; }
+label.wp-upload:hover { background: var(--surface2); }
+.wp-form { display: grid; gap: 0.4rem; margin-top: 0.5rem; }
+.wp-form input, .wp-form textarea { width: 100%; box-sizing: border-box; background: var(--surface2);
+  color: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 0.4rem 0.55rem; font: inherit; }
+.wp-actions { display: flex; gap: 0.5rem; justify-content: flex-end; align-items: center; }
+.mz-backdrop { z-index: 1100; background: rgba(8, 20, 40, 0.45); }
+.dz.mz { width: min(1000px, 92vw); height: min(80vh, 860px); }
+.mz-summary { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-bottom: 0.8rem; }
+.mz-tone { display: inline-block; border-radius: 999px; padding: 0.15rem 0.6rem; font-size: 0.78rem; font-weight: 700; }
+.mz-tone.positive { background: #dcfce7; color: #166534; }
+.mz-tone.negative { background: #fee2e2; color: #991b1b; }
+.mz-tone.mixed { background: #fef3c7; color: #92400e; }
+.mz-tone.neutral { background: var(--surface2); color: var(--muted); }
+.mz-cues { display: block; font-size: 0.74rem; color: var(--muted); margin-top: 0.2rem; }
+.mz-table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+.mz-table th { text-align: start; font-size: 0.76rem; text-transform: uppercase; color: var(--muted);
+  border-bottom: 2px solid var(--line); padding: 0.4rem 0.5rem; }
+.mz-table td { border-bottom: 1px solid var(--line); padding: 0.55rem 0.5rem; vertical-align: top; }
+.mz-date { white-space: nowrap; }
+.mz-report { color: var(--ink); font-weight: 600; text-decoration: none; }
+.mz-report:hover { color: var(--accent); text-decoration: underline; }
+.mz-foot { margin-top: 1rem; border-radius: var(--radius); border: none; }
+.dz-chips { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.dz-chip { background: var(--surface2); border: 1px solid var(--line); border-radius: 999px;
+  padding: 0.2rem 0.65rem; font-size: 0.82rem; }
+.dz-chip.ally { background: #e8f6ee; border-color: #9fd8b5; color: #14532d; }
+.dz-chip.friction { background: #fdeceb; border-color: #f2b2ad; color: #7f1d1d; }
+.dz-pos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.8rem; }
+@media (max-width: 560px) { .dz-pos { grid-template-columns: 1fr; } }
+.dz-pos ul, .dz-links { margin: 0; padding-inline-start: 1.1rem; font-size: 0.88rem; line-height: 1.5; }
+.dz-news { list-style: none; margin: 0; padding: 0; }
+.dz-news li { padding: 0.5rem 0; border-bottom: 1px solid var(--line); }
+.dz-news a { color: var(--ink); font-weight: 600; text-decoration: none; line-height: 1.45; display: block; }
+.dz-news a:hover { color: var(--accent); text-decoration: underline; }
+.dz-src { display: block; font-size: 0.78rem; color: var(--muted); margin-top: 0.15rem; }
+.dz-foot { margin-top: auto; padding: 0.8rem 1.4rem; border-top: 1px solid var(--line);
+  font-size: 0.8rem; color: var(--muted); background: var(--surface2); }
+.sh-removed { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin: 0 0 0.9rem; font-size: 0.82rem; }
+.sh-chip.removed { background: transparent; border-style: dashed; color: var(--muted); }
+.sh-restore {
+  background: transparent; color: var(--accent); border: none; padding: 0 0.1rem;
+  font-size: 0.8rem; cursor: pointer; font-weight: 700;
+}
+.sh-restore:hover { background: transparent; text-decoration: underline; }
 .sh-form { margin-top: 0.5rem; }
 .sh-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem 0.9rem; }
 @media (max-width: 640px) { .sh-grid { grid-template-columns: 1fr; } }

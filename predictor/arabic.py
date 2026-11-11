@@ -175,6 +175,25 @@ def term_hits(toks: list[str], entries: frozenset[str]):
                 yield i, i + L - 1, entry
 
 
+def count_terms_agency(text: str, entries: frozenset[str]
+                       ) -> tuple[int, dict[str, int], dict[str, dict[str, int]]]:
+    """Like count_terms, but hits where someone else acts or the action is denied
+    are set aside (see predictor.actor): (counted, {entry: n}, {role: {entry: n}})."""
+    from .actor import ar_role
+    toks = tokens(text)
+    hits: dict[str, int] = {}
+    skipped: dict[str, dict[str, int]] = {"other": {}, "denied": {}}
+    total = 0
+    for i, j, entry in term_hits(toks, entries):
+        role = ar_role(toks, i, j, " ".join(tokens(entry)))
+        if role in skipped:
+            skipped[role][entry] = skipped[role].get(entry, 0) + 1
+        else:
+            hits[entry] = hits.get(entry, 0) + 1
+            total += 1
+    return total, hits, skipped
+
+
 def count_terms(text: str, entries: frozenset[str]) -> tuple[int, dict[str, int]]:
     """Count lexicon hits in Arabic text."""
     hits: dict[str, int] = {}

@@ -17,7 +17,7 @@ from pathlib import Path
 import httpx
 
 from .llm import CHAT_URL, LLMNotConfigured, _api_key, _model, available, not_configured_reason
-from .stakeholders import STAKEHOLDERS
+from .stakeholders import _BUILTIN
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_DIR = ROOT / "baseline_speeches"
@@ -80,7 +80,7 @@ def main() -> None:
     if OUT.exists():
         profiles = json.loads(OUT.read_text(encoding="utf-8"))
 
-    for s in STAKEHOLDERS:
+    for s in _BUILTIN:
         if s["id"] in profiles:
             print(f"  have {s['id']} (cached)")
             continue

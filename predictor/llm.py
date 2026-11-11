@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import time
 
 import httpx
@@ -146,6 +147,33 @@ def fit_speech(text: str, prompt: str = "") -> tuple[str, str, dict | None]:
             f"evenly spaced excerpts ({read} words), separated by [...]. Judge the whole "
             "document from them.")
     return sent, note, {"read_words": read, "total_words": total}
+
+
+# Size of one part when a long document is read part by part (see split_parts).
+PART_TOKENS = int(os.environ.get("LLM_PART_TOKENS") or 3500)
+
+
+def split_parts(text: str, size: int = PART_TOKENS) -> list[str]:
+    """Cut a text into consecutive parts of about `size` tokens, at line or sentence
+    ends, so together they hold every word exactly once."""
+    pieces = re.findall(r"[^\n.!?\u061f]*(?:[\n.!?\u061f]+\s*|$)", text)
+    parts: list[str] = []
+    cur = ""
+    for piece in pieces:
+        if not piece:
+            continue
+        if cur and estimate_tokens(cur + piece) > size:
+            parts.append(cur)
+            cur = ""
+        cur += piece
+        # A run with no sentence end at all: cut it by length.
+        while estimate_tokens(cur) > size:
+            cut = int(len(cur) * size / estimate_tokens(cur))
+            parts.append(cur[:cut])
+            cur = cur[cut:]
+    if cur.strip():
+        parts.append(cur)
+    return [p.strip() for p in parts if p.strip()]
 
 
 class LLMNotConfigured(RuntimeError):

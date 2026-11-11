@@ -17,13 +17,19 @@ _NLP = None
 
 
 def nlp():
-    """Lazily load the spaCy pipeline (parser/NER disabled for speed)."""
+    """Lazily load the spaCy pipeline (NER off; the parser finds who does each action)."""
     global _NLP
     if _NLP is None:
-        _NLP = spacy.load(_MODEL, disable=["parser", "ner"])
-        # The default 1M-character cap guards the parser and NER, which are off.
+        _NLP = spacy.load(_MODEL, disable=["ner"])
+        # Long documents (50+ pages) are well past spaCy's default 1M-character cap.
         _NLP.max_length = 20_000_000
     return _NLP
+
+
+@lru_cache(maxsize=8)
+def parsed(text: str):
+    """The spaCy doc, cached so the scorer and the highlighter parse a text once."""
+    return nlp()(text)
 
 
 @lru_cache(maxsize=512)
@@ -32,15 +38,25 @@ def doc_tokens(text: str) -> tuple[tuple[str, ...], tuple[str, ...], tuple[str, 
 
     Cached by text so scoring all seven traits on one speech parses it once.
     """
-    doc = nlp()(text)
     surfaces, lemmas, pos = [], [], []
-    for t in doc:
-        if t.is_space or t.is_punct:
-            continue
+    for t in kept_tokens(text):
         surfaces.append(t.text.lower())
         lemmas.append(t.lemma_.lower())
         pos.append(t.pos_)
     return tuple(surfaces), tuple(lemmas), tuple(pos)
+
+
+@lru_cache(maxsize=64)
+def kept_tokens(text: str) -> tuple:
+    """The spaCy tokens the scorer counts over: no spaces or punctuation."""
+    return tuple(t for t in parsed(text) if not (t.is_space or t.is_punct))
+
+
+@lru_cache(maxsize=64)
+def token_roles(text: str) -> tuple[str, ...]:
+    """Who acts, per kept token: "self", "other", "denied" or "" (see predictor.actor)."""
+    from .actor import en_role
+    return tuple(en_role(t) for t in kept_tokens(text))
 
 
 def content_token_count(text: str) -> int:
@@ -79,6 +95,46 @@ def single_hit(surface: str, lemma: str, pos: str, single: dict) -> str | None:
     if pos == "PROPN":
         return None
     return single.get(lemma) or single.get(surface)
+
+
+SKIPPED = ("other", "denied")
+
+
+def lemma_hits(text: str, phrases: frozenset[str],
+               allowed_pos: frozenset[str] | None = None):
+    """Yield (first token, last token, list entry) for every dictionary hit."""
+    surfaces, lemmas, pos = doc_tokens(text)
+    single, multi = compile_phrases(phrases)
+    for i, lem in enumerate(lemmas):
+        p = single_hit(surfaces[i], lem, pos[i], single)
+        if p and (allowed_pos is None or pos[i] in allowed_pos):
+            yield i, i, p
+    n = len(lemmas)
+    for lemtup, p in multi:
+        L = len(lemtup)
+        for i in range(n - L + 1):
+            if lemmas[i:i + L] == lemtup:
+                yield i, i + L - 1, p
+
+
+def count_agency(text: str, phrases: frozenset[str],
+                 allowed_pos: frozenset[str] | None = None
+                 ) -> tuple[int, dict[str, int], dict[str, dict[str, int]]]:
+    """Like count_lemma, but hits where someone else acts or the action is denied
+    are set aside: (counted, {word: n}, {"other"|"denied": {word: n}})."""
+    roles = token_roles(text)
+    hits: dict[str, int] = {}
+    skipped: dict[str, dict[str, int]] = {r: {} for r in SKIPPED}
+    total = 0
+    for i, j, p in lemma_hits(text, phrases, allowed_pos):
+        # A phrase takes the role of its verb, else of its first word.
+        role = next((roles[k] for k in range(i, j + 1) if roles[k]), "")
+        if role in SKIPPED:
+            skipped[role][p] = skipped[role].get(p, 0) + 1
+        else:
+            hits[p] = hits.get(p, 0) + 1
+            total += 1
+    return total, hits, skipped
 
 
 def count_lemma(text: str, phrases: frozenset[str],

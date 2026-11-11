@@ -15,6 +15,11 @@ share of the hits (60% high + 40% low CC = high CC; TASK: problem-solving vs
 relationship). BACE, PWR, DIS and IGB are one list each, as a density (per 1000
 tokens), with High/Moderate/Low assigned later relative to a norming group.
 
+BACE and PWR count only actions by the speaker or their group: a word is left out
+when the grammar shows someone else acts ("they built") or the action is denied
+("we cannot control"); see predictor.actor. The left-out words are reported as
+"skipped" so the UI can show them.
+
 Arabic text (Modern Standard or Egyptian) is scored the same way against the
 Arabic lexicons, with clitic-aware matching from predictor.arabic instead of
 spaCy (no POS filters). Arabic densities are not comparable with English ones,
@@ -24,7 +29,7 @@ from __future__ import annotations
 
 from . import arabic
 from .dictionaries import lta_dictionaries, lta_dictionaries_ar
-from .nlp import count_lemma, content_token_count
+from .nlp import count_agency, count_lemma, content_token_count
 
 TRAITS = ("BACE", "PWR", "CC", "SC", "TASK", "DIS", "IGB")
 RATIO_TRAITS = ("CC", "SC", "TASK")
@@ -52,13 +57,17 @@ def _pos_for(trait: str) -> frozenset | None:
     return _POS.get(trait) if USE_POS else None
 
 
+AGENCY_TRAITS = ("BACE", "PWR")
+
+
 def _counters(language: str):
-    """(dictionaries, term counter, token counter) for a language."""
+    """(dictionaries, term counter, agency counter, token counter) for a language."""
     if language == "ar":
         return (lta_dictionaries_ar(),
                 lambda text, words, _pos=None: arabic.count_terms(text, words),
+                lambda text, words, _pos=None: arabic.count_terms_agency(text, words),
                 arabic.token_count)
-    return lta_dictionaries(), count_lemma, content_token_count
+    return lta_dictionaries(), count_lemma, count_agency, content_token_count
 
 
 def score_lta(text: str, language: str | None = None) -> dict:
@@ -67,7 +76,7 @@ def score_lta(text: str, language: str | None = None) -> dict:
     `language` is "en" or "ar"; detected from the script when omitted.
     """
     language = language or ("ar" if arabic.is_arabic(text) else "en")
-    d, count_lemma, content_token_count = _counters(language)
+    d, count_lemma, count_agency, content_token_count = _counters(language)
     tokens = content_token_count(text) or 1
     out: dict = {"tokens": tokens, "language": language, "traits": {}}
 
@@ -97,9 +106,16 @@ def score_lta(text: str, language: str | None = None) -> dict:
 
     # --- Density traits (verbs for BACE/PWR, noun/adj for DIS, any IGB).
     for trait in ("BACE", "PWR", "DIS", "IGB"):
-        n, hits = count_lemma(text, _fs(d[trait]), _pos_for(trait))
+        if trait in AGENCY_TRAITS:
+            n, hits, skipped = count_agency(text, _fs(d[trait]), _pos_for(trait))
+        else:
+            (n, hits), skipped = count_lemma(text, _fs(d[trait]), _pos_for(trait)), None
         out["traits"][trait] = {"kind": "density", "count": n,
                                 "value": density(n), "matches": hits}
+        if skipped is not None:
+            # Words on the list that weren't counted, and why.
+            out["traits"][trait]["skipped"] = {r: sum(m.values()) for r, m in skipped.items()}
+            out["traits"][trait]["skipped_matches"] = skipped
 
     return out
 

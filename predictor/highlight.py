@@ -5,7 +5,8 @@ but keeps each hit's position so it can be highlighted. `check_counts` asserts
 the totals agree with the real scorer, so the highlights can't drift from it.
 
 Labels are "<trait>:<pole>": CC and SC :high / :low, TASK:high (problem-solving
-words) / TASK:low (relationship words), and BACE/PWR/DIS/IGB:high.
+words) / TASK:low (relationship words), and BACE/PWR/DIS/IGB:high. A BACE or PWR
+word the scorer left out is BACE:other (someone else acts) or BACE:denied.
 """
 from __future__ import annotations
 
@@ -14,7 +15,9 @@ import re
 from . import arabic
 from .dictionaries import lta_dictionaries, lta_dictionaries_ar
 from .lta import score_lta
-from .nlp import compile_phrases, nlp, single_hit
+from .actor import ar_role
+from .lta import AGENCY_TRAITS
+from .nlp import SKIPPED, kept_tokens, lemma_hits, token_roles
 
 # Lexicon -> highlight label, in the order the scorer uses them.
 LISTS = {
@@ -28,28 +31,22 @@ LISTS = {
 # --------------------------------------------------------------------------- #
 # English: spaCy tokens with character offsets (as predictor.nlp.doc_tokens).
 # --------------------------------------------------------------------------- #
-def _en_tokens(text: str) -> list[tuple[int, int, str, str, str]]:
-    """(start, end, lowercase surface, lemma, POS), skipping spaces and punctuation."""
-    return [(t.idx, t.idx + len(t.text), t.text.lower(), t.lemma_.lower(), t.pos_)
-            for t in nlp()(text) if not (t.is_space or t.is_punct)]
+def _label(label: str, role: str) -> str:
+    """BACE:high becomes BACE:other / BACE:denied when the scorer left the word out."""
+    trait = label.split(":")[0]
+    return f"{trait}:{role}" if trait in AGENCY_TRAITS and role in SKIPPED else label
 
 
 def _en_spans(text: str) -> list[dict]:
-    toks = _en_tokens(text)
+    toks = kept_tokens(text)
+    roles = token_roles(text)
     d = lta_dictionaries()
     spans = []
     for key, label in LISTS.items():
-        words = frozenset(d[key])
-        single, multi = compile_phrases(words)  # count_lemma
-        spans += [{"start": s, "end": e, "labels": [label]}
-                  for s, e, surf, lem, pos in toks if single_hit(surf, lem, pos, single)]
-        lemmas = [t[3] for t in toks]
-        for lemtup, _phrase in multi:
-            n = len(lemtup)
-            for i in range(len(toks) - n + 1):
-                if tuple(lemmas[i:i + n]) == lemtup:
-                    spans.append({"start": toks[i][0], "end": toks[i + n - 1][1],
-                                  "labels": [label]})
+        for i, j, _ in lemma_hits(text, frozenset(d[key])):
+            role = next((roles[k] for k in range(i, j + 1) if roles[k]), "")
+            spans.append({"start": toks[i].idx, "end": toks[j].idx + len(toks[j].text),
+                          "labels": [_label(label, role)]})
     return spans
 
 
@@ -75,10 +72,11 @@ def _ar_spans(text: str) -> list[dict]:
     toks = _ar_tokens(text)
     d = lta_dictionaries_ar()
     spans = []
+    words = [t[2] for t in toks]
     for key, label in LISTS.items():
-        words = [t[2] for t in toks]
-        spans += [{"start": toks[i][0], "end": toks[j][1], "labels": [label]}
-                  for i, j, _ in arabic.term_hits(words, frozenset(d[key]))]
+        spans += [{"start": toks[i][0], "end": toks[j][1],
+                   "labels": [_label(label, ar_role(words, i, j, " ".join(arabic.tokens(e))))]}
+                  for i, j, e in arabic.term_hits(words, frozenset(d[key]))]
     return spans
 
 
@@ -95,6 +93,7 @@ def check_counts(text: str, spans: list[dict]) -> dict[str, tuple[int, int]]:
         "SC:high": tr["SC"]["high"], "SC:low": tr["SC"]["low"],
         "TASK:high": tr["TASK"]["task"], "TASK:low": tr["TASK"]["group"],
         **{f"{t}:high": tr[t]["count"] for t in ("BACE", "PWR", "DIS", "IGB")},
+        **{f"{t}:{r}": tr[t]["skipped"][r] for t in AGENCY_TRAITS for r in SKIPPED},
     }
     got = {k: 0 for k in expected}
     for sp in spans:

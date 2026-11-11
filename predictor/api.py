@@ -25,6 +25,7 @@ from .mock_speeches import MOCK_SPEECHES
 from . import llm
 from . import stakeholders as stk
 from . import auth
+from . import dossier
 from .extract import ExtractError, MAX_BYTES, extract_text
 from .highlight import scorer_spans
 from .speeches import split_speeches
@@ -186,7 +187,7 @@ def analyze_batch(req: BatchRequest, user: str = Depends(auth.require_auth)) -> 
 @app.get("/stakeholders")
 def stakeholders_list(user: str = Depends(auth.require_auth)) -> dict:
     """The stakeholder panel (built-in + user-added) the UI can render."""
-    return {"stakeholders": stk.PROFILES_PUBLIC}
+    return {"stakeholders": stk.PROFILES_PUBLIC, "removed": stk.REMOVED_BUILTINS}
 
 
 @app.get("/stakeholders/speeches")
@@ -206,10 +207,64 @@ def add_stakeholder_endpoint(req: NewStakeholder, user: str = Depends(auth.requi
 
 @app.delete("/stakeholders/{sid}")
 def delete_stakeholder_endpoint(sid: str, user: str = Depends(auth.require_auth)) -> dict:
-    """Remove a user-added stakeholder (built-ins cannot be deleted)."""
+    """Remove a stakeholder from the panel."""
     if not stk.delete_stakeholder(sid):
-        raise HTTPException(status_code=404, detail="No such custom stakeholder.")
+        raise HTTPException(status_code=404, detail="No such stakeholder.")
     return {"deleted": sid}
+
+
+@app.get("/stakeholders/{sid}/dossier")
+def stakeholder_dossier(sid: str, language: str = "en",
+                        user: str = Depends(auth.require_auth)) -> dict:
+    """Profile of one stakeholder: compiled background, leadership style and alliances,
+    plus recent coverage from trusted outlets in their country and abroad."""
+    person = next((s for s in stk.STAKEHOLDERS if s["id"] == sid), None)
+    if person is None:
+        raise HTTPException(status_code=404, detail="No such stakeholder.")
+    out = dossier.build(person, language="ar" if language == "ar" else "en")
+    return {**out, "person": stk._public(person), "word_profile": stk.word_profile(sid)}
+
+
+class NewSpeech(BaseModel):
+    text: str
+    title: str = ""
+
+
+@app.post("/stakeholders/{sid}/speeches")
+def add_stakeholder_speech(sid: str, req: NewSpeech, user: str = Depends(auth.require_auth)) -> dict:
+    """Save one of this person's speeches; returns the updated word-scorer profile."""
+    if not any(s["id"] == sid for s in stk.STAKEHOLDERS):
+        raise HTTPException(status_code=404, detail="No such stakeholder.")
+    try:
+        return stk.add_speech(sid, req.text, req.title)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.delete("/stakeholders/{sid}/speeches/{speech_id}")
+def delete_stakeholder_speech(sid: str, speech_id: str, user: str = Depends(auth.require_auth)) -> dict:
+    """Remove a saved speech; returns the updated word-scorer profile."""
+    if not stk.delete_speech(sid, speech_id):
+        raise HTTPException(status_code=404, detail="No such saved speech.")
+    return stk.word_profile(sid)
+
+
+@app.get("/stakeholders/{sid}/mentions/{country}")
+def stakeholder_mentions(sid: str, country: str, user: str = Depends(auth.require_auth)) -> dict:
+    """What a built-in stakeholder said about one of their partner or rival countries."""
+    prof = dossier.PROFILES.get(sid)
+    listed = {dossier.country_of(l) for l in (prof["partners"] + prof["frictions"])} if prof else set()
+    if country not in listed or sid not in dossier.ALIASES:
+        raise HTTPException(status_code=404, detail="No such country in this profile.")
+    return dossier.mentions(sid, country)
+
+
+@app.post("/stakeholders/{sid}/restore")
+def restore_stakeholder_endpoint(sid: str, user: str = Depends(auth.require_auth)) -> dict:
+    """Put a removed built-in stakeholder back on the panel."""
+    if not stk.restore_stakeholder(sid):
+        raise HTTPException(status_code=404, detail="No such removed stakeholder.")
+    return {"restored": sid}
 
 
 @app.post("/analyze/stakeholders")

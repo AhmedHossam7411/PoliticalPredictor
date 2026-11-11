@@ -179,14 +179,23 @@
         <div class="sh-list">
           @for (s of stakeholders(); track s.id) {
             <span class="sh-chip" [class.custom]="s.custom">
-              {{ s.name }}
-              @if (s.custom) {
-                <button class="sh-x" (click)="deleteStakeholder(s.id)"
-                  [title]="t().removeStakeholder">×</button>
-              }
+              <button class="sh-name" (click)="openDossier(s.id, s.name)" [title]="t().dzOpen">{{ s.name }}</button>
+              <button class="sh-x" (click)="deleteStakeholder(s)"
+                [title]="t().removeStakeholder" [attr.aria-label]="t().removeStakeholder + ': ' + s.name">×</button>
             </span>
           }
         </div>
+        @if (removedStakeholders().length) {
+          <div class="sh-removed">
+            <span class="muted">{{ t().removedStakeholders }}</span>
+            @for (s of removedStakeholders(); track s.id) {
+              <span class="sh-chip removed">
+                {{ s.name }}
+                <button class="sh-restore" (click)="restoreStakeholder(s.id)">{{ t().restoreStakeholder }}</button>
+              </span>
+            }
+          </div>
+        }
 
         @if (!showAddForm()) {
           <button (click)="toggleAddForm()">➕ {{ t().addStakeholder }}</button>
@@ -366,6 +375,7 @@
       </h2>
       <p class="muted">{{ t().stakeIntro }}</p>
       @if (excerptNote(st.excerpted); as note) { <p class="fallback-note">{{ note }}</p> }
+      @else if (partsNote(st.read_in_parts); as note) { <p class="muted">✓ {{ note }}</p> }
       @if (st.method === 'heuristic') {
         <p class="fallback-note">⚠ {{ t().fallbackNote }}
           @if (st.fallback_reason) { <br><small>{{ st.fallback_reason }}</small> }
@@ -402,7 +412,7 @@
         @for (r of filteredReactions(); track r.id) {
           <div class="stake-card">
             <div class="stake-top">
-              <span class="stake-name">{{ r.name }}</span>
+              <button class="stake-name sh-name" (click)="openDossier(r.id, r.name)" [title]="t().dzOpen">{{ r.name }}</button>
               <span class="stance" [class]="stanceClass(r.stance)">{{ stanceLabel(r.stance) }}</span>
             </div>
             <p class="stake-role">{{ r.role }}</p>
@@ -437,4 +447,203 @@
   }
 
   }
+  <!-- ===== Stakeholder profile (opens over the page) ===== -->
+  @if (dossierOpen()) {
+    <div class="dz-backdrop" (click)="closeDossier()">
+      <div class="dz" role="dialog" aria-modal="true" [attr.aria-label]="dossierName()"
+        (click)="$event.stopPropagation()">
+        <header class="dz-head">
+          <div class="dz-avatar" aria-hidden="true">{{ initials(dossierName()) }}</div>
+          <div class="dz-title">
+            <h2>{{ dossierName() }}
+              @if (dossier()?.profile?.name_local; as local) {
+                @if (local !== dossierName()) { <span class="dz-local" dir="auto">{{ local }}</span> }
+              }
+            </h2>
+            <p class="muted">{{ dossier()?.person?.role }}
+              @if (dossier()?.profile?.country; as c) { · {{ c }} }</p>
+            @if (dossier(); as d) {
+              <div class="dz-tags">
+                @if (d.profile?.personality_type?.length) {
+                  <span class="dz-tag-label">{{ t().dzType }}</span>
+                  @for (v of d.profile!.personality_type; track v) { <span class="dz-chip type">{{ v }}</span> }
+                }
+                @if (d.person.values.length) {
+                  <span class="dz-tag-label">{{ t().dzValues }}</span>
+                  @for (v of d.person.values; track v) { <span class="dz-chip value">{{ v }}</span> }
+                }
+              </div>
+            }
+          </div>
+          <button id="dz-close" class="dz-close" (click)="closeDossier()" [attr.aria-label]="t().close">×</button>
+        </header>
+
+        @if (dossierLoading()) { <p class="muted dz-pad">{{ t().dzLoading }}</p> }
+        @if (dossierError()) { <p class="error dz-pad">{{ dossierError() }}</p> }
+
+        @if (dossier(); as d) {
+          <div class="dz-body">
+            <div class="dz-col">
+              @if (!d.profile) { <p class="fallback-note">{{ t().dzCustom }}</p> }
+              @if (d.profile) {
+                <section>
+                  <h3>{{ t().dzBackground }}</h3>
+                  <p>{{ d.profile.background }}</p>
+                </section>
+              }
+              <section>
+                <h3>{{ t().dzStyle }}</h3>
+                @if (d.profile) { <p>{{ d.profile.leadership_style }}</p> }
+                @if (d.person.personality) { <p class="muted">{{ d.person.personality }}</p> }
+                <div class="wp">
+                  <h4>{{ t().wpHeading }}</h4>
+                  @for (r of d.word_profile.results; track r.language) {
+                    <div class="wp-boxes">
+                      @for (tr of traits; track tr) {
+                        <span class="band wp-box" [class]="'band wp-box ' + bandClass(r.traits[tr].band)"
+                          [title]="t().traitNames[tr] + ': ' + bandLabel(r.traits[tr].band) + ' (' + r.traits[tr].percent + '%)'">
+                          {{ tr }} {{ bandLabel(r.traits[tr].band) }}</span>
+                      }
+                    </div>
+                    <p class="wp-sum">{{ bandSummary(r.traits) }}
+                      <span class="muted">{{ wpBasis(r) }}</span></p>
+                  } @empty { <p class="muted wp-sum">{{ t().wpNone }}</p> }
+                  <div class="wp-files">
+                    @for (sp of d.word_profile.speeches; track sp.id) {
+                      <span class="wp-file" [title]="sp.title">{{ sp.title || t().wpUntitled }} · {{ sp.words.toLocaleString('en-US') }}
+                        @if (sp.removable) {
+                          <button class="sh-x" (click)="removeProfileSpeech(sp.id)" [attr.aria-label]="t().removeStakeholder">×</button>
+                        }
+                      </span>
+                    }
+                    <button class="ghost wp-add" (click)="wpFormOpen.set(!wpFormOpen())">+ {{ t().wpAdd }}</button>
+                  </div>
+                  @if (wpFormOpen()) {
+                    <div class="wp-form">
+                      <input [placeholder]="t().wpTitle" [ngModel]="wpTitle()" (ngModelChange)="wpTitle.set($event)">
+                      <textarea rows="5" dir="auto" [placeholder]="t().wpPaste" [ngModel]="wpText()" (ngModelChange)="wpText.set($event)"></textarea>
+                      <div class="wp-actions">
+                        <label class="ghost wp-upload">{{ t().wpUpload }}
+                          <input type="file" accept=".pdf,.txt,.docx,.md" hidden (change)="wpUploadFile($event)"></label>
+                        <button (click)="saveProfileSpeech()" [disabled]="wpBusy() || !wpText().trim()">{{ wpBusy() ? t().saving : t().wpSave }}</button>
+                      </div>
+                    </div>
+                  }
+                  @if (wpError()) { <p class="error">{{ wpError() }}</p> }
+                </div>
+              </section>
+              @if (d.profile) {
+                <section>
+                  <h3>{{ t().dzAlliances }}</h3>
+                  <h4>{{ t().dzMemberships }}</h4>
+                  <div class="dz-chips">@for (v of d.profile.memberships; track v) { <span class="dz-chip">{{ v }}</span> }</div>
+                  <h4>{{ t().dzPartners }}</h4>
+                  <div class="dz-chips">@for (v of d.profile.partners; track v.label) {
+                    @if (v.country) {
+                      <button class="dz-chip ally link" (click)="openMentions(v.country, v.country_name!)" [title]="t().mzOpen">{{ v.label }}</button>
+                    } @else { <span class="dz-chip ally">{{ v.label }}</span> }
+                  }</div>
+                  <h4>{{ t().dzFrictions }}</h4>
+                  <div class="dz-chips">@for (v of d.profile.frictions; track v.label) {
+                    @if (v.country) {
+                      <button class="dz-chip friction link" (click)="openMentions(v.country, v.country_name!)" [title]="t().mzOpen">{{ v.label }}</button>
+                    } @else { <span class="dz-chip friction">{{ v.label }}</span> }
+                  }</div>
+                  <p class="muted dz-hint">{{ t().mzHint }}</p>
+                </section>
+              }
+              <section>
+                <h3>{{ t().dzPositions }}</h3>
+                <div class="dz-pos">
+                  <div><h4>{{ t().dzSupports }}</h4><ul>@for (v of d.person.supports; track v) { <li>{{ v }}</li> }</ul></div>
+                  <div><h4>{{ t().dzOpposes }}</h4><ul>@for (v of d.person.opposes; track v) { <li>{{ v }}</li> }</ul></div>
+                  <div><h4>{{ t().dzConcerns }}</h4><ul>@for (v of d.person.concerns; track v) { <li>{{ v }}</li> }</ul></div>
+                </div>
+              </section>
+              @if (d.profile) {
+                <section>
+                  <h3>{{ t().dzSources }}</h3>
+                  <ul class="dz-links">
+                    @for (o of d.profile.official; track o.url) {
+                      <li><a [href]="o.url" target="_blank" rel="noopener noreferrer">{{ o.name }}</a></li>
+                    }
+                  </ul>
+                </section>
+              }
+            </div>
+
+            <div class="dz-col">
+              @if (d.profile) {
+                <section>
+                  <h3>{{ t().dzDomestic.replace('{country}', d.profile.country) }}</h3>
+                  <ng-container *ngTemplateOutlet="newsList; context: { $implicit: d.news.domestic }"></ng-container>
+                </section>
+              }
+              <section>
+                <h3>{{ d.profile ? t().dzInternational : t().dzNews }}</h3>
+                <ng-container *ngTemplateOutlet="newsList; context: { $implicit: d.news.international }"></ng-container>
+              </section>
+              <section>
+                <h3>{{ t().dzSpeeches }}</h3>
+                <ng-container *ngTemplateOutlet="newsList; context: { $implicit: d.news.speeches }"></ng-container>
+              </section>
+            </div>
+          </div>
+          <footer class="dz-foot">{{ t().dzNote }}
+            @if (d.errors.length) { {{ t().dzPartial }} }</footer>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ===== What the stakeholder said about one country (opens over the profile) ===== -->
+  @if (mentionsOpen()) {
+    <div class="dz-backdrop mz-backdrop" (click)="closeMentions()">
+      <div class="dz mz" role="dialog" aria-modal="true" [attr.aria-label]="mentionsTitle()"
+        (click)="$event.stopPropagation()">
+        <header class="dz-head">
+          <div class="dz-title">
+            <h2>{{ mentionsTitle() }}</h2>
+            <p class="muted">{{ t().mzIntro }}</p>
+          </div>
+          <button id="mz-close" class="dz-close" (click)="closeMentions()" [attr.aria-label]="t().close">×</button>
+        </header>
+        @if (mentionsLoading()) { <p class="muted dz-pad">{{ t().mzLoading }}</p> }
+        @if (mentionsError()) { <p class="error dz-pad">{{ mentionsError() }}</p> }
+        @if (mentions(); as m) {
+          <div class="dz-pad">
+            @if (m.total) {
+              <table class="mz-table">
+                <thead><tr><th>{{ t().mzDate }}</th><th>{{ t().mzPlace }}</th><th>{{ t().mzReport }}</th></tr></thead>
+                <tbody>
+                  @for (it of m.items; track it.url) {
+                    <tr>
+                      <td class="mz-date">{{ shortDate(it.published) }}</td>
+                      <td>{{ it.place || t().mzNoPlace }}</td>
+                      <td><a class="mz-report" [href]="it.url" target="_blank" rel="noopener noreferrer" dir="auto">{{ it.title }}</a>
+                        <span class="dz-src">{{ it.source || it.domain }}</span></td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            } @else { <p class="muted">{{ t().mzNone }}</p> }
+            <p class="dz-foot mz-foot">{{ t().mzNote }} @if (m.errors.length) { {{ t().dzPartial }} }</p>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  <ng-template #newsList let-items>
+    @if (items.length) {
+      <ul class="dz-news">
+        @for (it of items; track it.url) {
+          <li>
+            <a [href]="it.url" target="_blank" rel="noopener noreferrer" dir="auto">{{ it.title }}</a>
+            <span class="dz-src">{{ it.source || it.domain }} · {{ shortDate(it.published) }}</span>
+          </li>
+        }
+      </ul>
+    } @else { <p class="muted">{{ t().dzNoNews }}</p> }
+  </ng-template>
 </div>

@@ -24,3 +24,7 @@ deploy/dist/
 
 # Speech Lab test runs (local results)
 tools/speech_lab/results/
+
+# Built-in stakeholders removed from the panel (local choice)
+predictor/hidden_stakeholders.json
+predictor/stakeholder_speeches.json

@@ -1,5 +1,6 @@
 import { Component, inject, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LANGS, Lang } from './i18n';
@@ -10,9 +11,10 @@ declare global {
   interface Window { __API_URL__?: string }
 }
 const API = window.__API_URL__ || 'http://127.0.0.1:8000';
+// Seven clearly different hues, so no two traits look alike in the text.
 const TRAIT_COLORS: Record<string, string> = {
-  BACE: '#2563eb', PWR: '#dc2626', CC: '#7c3aed', SC: '#ea580c',
-  TASK: '#16a34a', DIS: '#92400e', IGB: '#0d9488',
+  BACE: '#2563eb', PWR: '#dc2626', CC: '#9333ea', SC: '#f59e0b',
+  TASK: '#16a34a', DIS: '#db2777', IGB: '#0891b2',
 };
 
 /** Text from PDFs and web pages keeps its old line breaks, which leaves it stuck in a
@@ -35,12 +37,25 @@ function reflowLines(chars: string[]): string[] {
   return out;
 }
 
-/** A filled word = high/problem-solving/one-list word; underline only = low/relationship.
- *  A word on several lists gets one underline per list. */
+/** Solid fill = high/problem-solving/one-list word; striped fill = low/relationship.
+ *  Every list adds a thick underline in its colour, so a word on two lists has two. */
+const SKIPPED = new Set(['other', 'denied']);
+const isSkipped = (label: string) => SKIPPED.has(label.split(':')[1]);
+
 function highlightStyle(labels: string[]): string {
+  // A BACE/PWR word the scorer left out: dashed outline only, no fill.
+  const counted = labels.filter((l) => !isSkipped(l));
+  if (!counted.length) {
+    const c = TRAIT_COLORS[labels[0].split(':')[0]];
+    return `background:transparent;box-shadow:none;outline:1.5px dashed ${c};outline-offset:-1px;opacity:.75;`;
+  }
+  labels = counted;
   const [trait, pole] = labels[0].split(':');
-  const lines = labels.map((l, i) => `inset 0 ${-2 * (i + 1)}px 0 ${TRAIT_COLORS[l.split(':')[0]]}`);
-  const fill = pole === 'low' ? '' : `background:${TRAIT_COLORS[trait]}2e;`;
+  const c = TRAIT_COLORS[trait];
+  const lines = labels.map((l, i) => `inset 0 ${-3 * (i + 1)}px 0 ${TRAIT_COLORS[l.split(':')[0]]}`);
+  const fill = pole === 'low'
+    ? `background:repeating-linear-gradient(135deg,${c}55 0 3px,${c}14 3px 6px);`
+    : `background:${c}4d;`;
   return `${fill}box-shadow:${lines.join(',')};`;
 }
 
@@ -49,6 +64,9 @@ interface DictTrait { kind: string; value: number; band: string; count?: number;
   // Evidence weighting: band uses `adjusted`; confidence = how much text backs it.
   adjusted?: number; raw_band?: string; confidence?: 'low' | 'medium' | 'high';
   percent?: number; hits?: number;
+  // BACE/PWR words on the list but not counted: someone else acts, or it's denied.
+  skipped?: { other: number; denied: number };
+  skipped_matches?: { other: Record<string, number>; denied: Record<string, number> };
   // Words found: {word: count}, or per list for the two-list traits.
   matches?: Record<string, number> | Record<string, Record<string, number>>; }
 // One counted word: character offsets (code points) and lists, e.g. "CC:high".
@@ -77,15 +95,35 @@ interface Meta { lta_traits: string[]; vics_indices: string[];
 interface Reaction { id: string; name: string; role: string; stance: string;
   confidence: number; reasoning: string; response: string; }
 interface StakeResult { reactions: Reaction[]; method: string; model?: string;
-  calibrated?: boolean; fallback_reason?: string; excerpted?: Excerpted | null; }
+  calibrated?: boolean; fallback_reason?: string; excerpted?: Excerpted | null;
+  read_in_parts?: { parts: number; total_words: number } | null; }
 interface PublicStakeholder { id: string; name: string; role: string; scope?: string;
   personality?: string; values: string[]; supports: string[]; opposes: string[];
   concerns: string[]; custom: boolean; }
 interface SpeechOpt { id: string; label: string; }
+interface NewsItem { title: string; url: string; source: string; domain: string; published: string; }
+// A partner or rival; `country` is set when it is a country the user can click.
+interface Relation { label: string; country: string | null; country_name: string | null; }
+interface DossierProfile { country: string; cc: string; name_local: string;
+  official: { name: string; url: string }[]; background: string; leadership_style: string;
+  personality_type: string[]; memberships: string[]; partners: Relation[]; frictions: Relation[]; }
+// The word scorer run on this person's own speeches: one result per language.
+interface WordProfileResult { language: 'en' | 'ar'; speeches: number; tokens: number;
+  traits: Record<string, { band: string; percent: number; confidence?: string }>; }
+interface WordProfile { results: WordProfileResult[];
+  speeches: { id: string; title: string; words: number; language: string; removable: boolean }[]; }
+interface Dossier { id: string; person: PublicStakeholder; profile: DossierProfile | null;
+  news: { domestic: NewsItem[]; international: NewsItem[]; speeches: NewsItem[] };
+  errors: string[]; word_profile: WordProfile; }
+type Tone = 'positive' | 'negative' | 'mixed' | 'neutral';
+interface Mention extends NewsItem { tone: Tone; cues: string[]; place: string | null; }
+interface Mentions { country: string; country_name: string; country_name_ar: string;
+  items: Mention[]; total: number; counts: Record<Tone, number>; errors: string[]; }
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule],
+  imports: [FormsModule, NgTemplateOutlet],
+  host: { '(document:keydown.escape)': 'onEscape()' },
   templateUrl: './app.html',
   styleUrl: './app.css',
 })
@@ -138,6 +176,7 @@ export class App {
 
   // --- Stakeholder panel management --------------------------------------
   stakeholders = signal<PublicStakeholder[]>([]);
+  removedStakeholders = signal<{ id: string; name: string }[]>([]);
   speeches = signal<SpeechOpt[]>([]);
   showPanel = signal(false);
   showAddForm = signal(false);
@@ -157,6 +196,13 @@ export class App {
   analyzed = computed(() => !!this.dict() || !!this.llm() || !!this.stake());
 
   /** "The AI read 5,120 of 41,836 words…", or '' when it read the whole text. */
+  /** Says the AI read a long document whole, part by part. */
+  partsNote(p?: { parts: number; total_words: number } | null): string {
+    if (!p) return '';
+    return this.t().aiPartsNote.replace('{parts}', String(p.parts))
+      .replace('{total}', p.total_words.toLocaleString('en-US'));
+  }
+
   excerptNote(excerpted?: Excerpted | null): string {
     if (!excerpted) return '';
     const fmt = (n: number) => n.toLocaleString('en-US');
@@ -167,6 +213,8 @@ export class App {
   private listName(label: string): string {
     const b = this.t();
     const [trait, pole] = label.split(':');
+    if (pole === 'other') return `${b.traitNames[trait]}: ${b.skippedOther}`;
+    if (pole === 'denied') return `${b.traitNames[trait]}: ${b.skippedDenied}`;
     if (trait !== 'CC' && trait !== 'SC' && trait !== 'TASK') return b.traitNames[trait];
     const [first, second] = this.listNames(trait);
     return `${b.traitNames[trait]}: ${b.listOf.replace('{x}', pole === 'low' ? second : first)}`;
@@ -179,7 +227,7 @@ export class App {
       for (const l of span.labels) counts[l] = (counts[l] ?? 0) + 1;
     }
     const hidden = this.hiddenLists();
-    return this.traits.flatMap((tr) => [`${tr}:high`, `${tr}:low`])
+    return this.traits.flatMap((tr) => [`${tr}:high`, `${tr}:low`, `${tr}:other`, `${tr}:denied`])
       .filter((l) => counts[l])
       .map((l) => ({ label: l, name: this.listName(l), count: counts[l], hidden: hidden.has(l),
                      style: highlightStyle([l]) }));
@@ -264,18 +312,22 @@ export class App {
    *  a short one from the word scorer's high/low bands. */
   wordSummary = computed(() => {
     const d = this.dict();
-    if (!d) return '';
+    return d ? this.bandSummary(d.lta.traits) : '';
+  });
+
+  /** "Higher than usual: … Lower than usual: … Task focus: …" from the bands. */
+  bandSummary(traits: Record<string, { band: string }>): string {
     const b = this.t();
-    const highs = this.traits.filter((tr) => d.lta.traits[tr]?.band === 'High');
-    const lows = this.traits.filter((tr) => d.lta.traits[tr]?.band === 'Low');
+    const highs = this.traits.filter((tr) => traits[tr]?.band === 'High');
+    const lows = this.traits.filter((tr) => traits[tr]?.band === 'Low');
     const name = (tr: string) => b.traitNames[tr];
     const parts: string[] = [];
     if (highs.length) parts.push(`${b.higher} ${highs.map(name).join(', ')}.`);
     if (lows.length) parts.push(`${b.lower} ${lows.map(name).join(', ')}.`);
-    const task = d.lta.traits['TASK']?.band;
+    const task = traits['TASK']?.band;
     if (task && task !== 'Balanced' && task !== 'Too few words') parts.push(`${name('TASK')}: ${this.bandLabel(task)}.`);
-    return parts.join(' ');
-  });
+    return parts.join(' ') || b.wpUsual;
+  }
 
   constructor() {
     // Resume an existing session if a token is already stored.
@@ -308,8 +360,10 @@ export class App {
   }
 
   loadStakeholders() {
-    this.http.get<{ stakeholders: PublicStakeholder[] }>(`${API}/stakeholders`).subscribe({
-      next: (r) => this.stakeholders.set(r.stakeholders), error: () => {},
+    this.http.get<{ stakeholders: PublicStakeholder[]; removed: { id: string; name: string }[] }>(
+      `${API}/stakeholders`).subscribe({
+      next: (r) => { this.stakeholders.set(r.stakeholders); this.removedStakeholders.set(r.removed); },
+      error: () => {},
     });
   }
 
@@ -360,9 +414,162 @@ export class App {
     });
   }
 
-  deleteStakeholder(id: string) {
-    this.http.delete(`${API}/stakeholders/${id}`).subscribe({
+  // --- Stakeholder profile pop-up -----------------------------------------
+  dossierOpen = signal(false);
+  dossierName = signal('');
+  dossier = signal<Dossier | null>(null);
+  dossierLoading = signal(false);
+  dossierError = signal('');
+  private dossierFor = '';
+
+  openDossier(id: string, name: string) {
+    this.dossierFor = id;
+    this.dossierName.set(name);
+    this.dossier.set(null); this.dossierError.set(''); this.dossierLoading.set(true);
+    this.wpFormOpen.set(false); this.wpText.set(''); this.wpTitle.set(''); this.wpError.set('');
+    this.dossierOpen.set(true);
+    document.body.style.overflow = 'hidden';
+    setTimeout(() => document.getElementById('dz-close')?.focus());
+    this.http.get<Dossier>(`${API}/stakeholders/${encodeURIComponent(id)}/dossier`,
+      { params: { language: this.lang() } }).subscribe({
+      next: (d) => { if (this.dossierFor === id) { this.dossier.set(d); this.dossierLoading.set(false); } },
+      error: (e) => { if (this.dossierFor === id) { this.dossierError.set(this.msg(e)); this.dossierLoading.set(false); } },
+    });
+  }
+
+  // --- Word-scorer profile from the person's own speeches --------------------
+  wpFormOpen = signal(false);
+  wpText = signal('');
+  wpTitle = signal('');
+  wpBusy = signal(false);
+  wpError = signal('');
+
+  wpBasis(r: WordProfileResult): string {
+    return this.t().wpBasis.replace('{n}', String(r.speeches))
+      .replace('{words}', r.tokens.toLocaleString('en-US'))
+      .replace('{lang}', r.language === 'ar' ? this.t().langAr : this.t().langEn);
+  }
+
+  private setWordProfile(wp: WordProfile) {
+    const d = this.dossier();
+    if (d) this.dossier.set({ ...d, word_profile: wp });
+  }
+
+  saveProfileSpeech() {
+    const sid = this.dossierFor;
+    if (!sid) return;
+    this.wpBusy.set(true); this.wpError.set('');
+    this.http.post<WordProfile>(`${API}/stakeholders/${encodeURIComponent(sid)}/speeches`,
+      { text: this.wpText(), title: this.wpTitle() }).subscribe({
+      next: (wp) => {
+        this.setWordProfile(wp); this.wpBusy.set(false);
+        this.wpText.set(''); this.wpTitle.set(''); this.wpFormOpen.set(false);
+      },
+      error: (e) => { this.wpError.set(this.msg(e)); this.wpBusy.set(false); },
+    });
+  }
+
+  removeProfileSpeech(speechId: string) {
+    const sid = this.dossierFor;
+    if (!sid || !window.confirm(this.t().wpConfirmRemove)) return;
+    this.http.delete<WordProfile>(`${API}/stakeholders/${encodeURIComponent(sid)}/speeches/${encodeURIComponent(speechId)}`)
+      .subscribe({ next: (wp) => this.setWordProfile(wp), error: (e) => this.wpError.set(this.msg(e)) });
+  }
+
+  /** Read a PDF or text file into the speech box (the same reader as the main upload). */
+  wpUploadFile(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file) return;
+    this.wpBusy.set(true); this.wpError.set('');
+    this.http.post<{ text: string }>(`${API}/extract-text`, file, {
+      params: { filename: file.name }, headers: { 'Content-Type': 'application/octet-stream' },
+    }).subscribe({
+      next: (r) => {
+        this.wpText.set(r.text);
+        if (!this.wpTitle()) this.wpTitle.set(file.name.replace(/\.[^.]+$/, ''));
+        this.wpBusy.set(false);
+      },
+      error: (e) => {
+        const errors = this.t().uploadErrors;
+        this.wpError.set(errors[e?.error?.detail] ?? errors['file-unreadable']);
+        this.wpBusy.set(false);
+      },
+    });
+  }
+
+  // --- What the stakeholder said about one country -------------------------
+  readonly toneOrder: Tone[] = ['positive', 'negative', 'mixed', 'neutral'];
+  mentionsOpen = signal(false);
+  mentions = signal<Mentions | null>(null);
+  mentionsLoading = signal(false);
+  mentionsError = signal('');
+  mentionsTitle = signal('');
+  private mentionsFor = '';
+
+  openMentions(country: string, countryName: string) {
+    const sid = this.dossierFor;
+    if (!sid) return;
+    const key = `${sid}:${country}`;
+    this.mentionsFor = key;
+    this.mentionsTitle.set(this.t().mzTitle.replace('{name}', this.dossierName()).replace('{country}', countryName));
+    this.mentions.set(null); this.mentionsError.set(''); this.mentionsLoading.set(true);
+    this.mentionsOpen.set(true);
+    setTimeout(() => document.getElementById('mz-close')?.focus());
+    this.http.get<Mentions>(`${API}/stakeholders/${encodeURIComponent(sid)}/mentions/${encodeURIComponent(country)}`)
+      .subscribe({
+        next: (m) => { if (this.mentionsFor === key) { this.mentions.set(m); this.mentionsLoading.set(false); } },
+        error: (e) => { if (this.mentionsFor === key) { this.mentionsError.set(this.msg(e)); this.mentionsLoading.set(false); } },
+      });
+  }
+
+  closeMentions() {
+    this.mentionsOpen.set(false);
+    this.mentionsFor = '';
+    setTimeout(() => document.getElementById('dz-close')?.focus());
+  }
+
+  /** Esc closes the top window first. */
+  onEscape() {
+    if (this.mentionsOpen()) this.closeMentions();
+    else this.closeDossier();
+  }
+
+  closeDossier() {
+    if (!this.dossierOpen()) return;
+    this.mentionsOpen.set(false);
+    this.dossierOpen.set(false);
+    this.dossierFor = '';
+    document.body.style.overflow = '';
+  }
+
+  initials(name: string): string {
+    return name.split(/\s+/).filter((w) => /^\p{Lu}/u.test(w)).slice(0, 2).map((w) => w[0]).join('')
+      || name.slice(0, 1);
+  }
+
+  shortDate(iso: string): string {
+    if (!iso) return '';
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? '' : d.toLocaleDateString(this.lang() === 'ar' ? 'ar-EG' : 'en-GB',
+      { day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  deleteStakeholder(s: PublicStakeholder) {
+    const ask = s.custom ? this.t().confirmDeleteCustom : this.t().confirmDeleteBuiltin;
+    if (!window.confirm(ask.replace('{name}', s.name))) return;
+    this.addError.set(''); this.addMsg.set('');
+    this.http.delete(`${API}/stakeholders/${encodeURIComponent(s.id)}`).subscribe({
       next: () => { this.loadStakeholders(); this.loadSpeeches(); },
+      error: (e) => { this.addError.set(this.msg(e)); },
+    });
+  }
+
+  restoreStakeholder(id: string) {
+    this.addError.set(''); this.addMsg.set('');
+    this.http.post(`${API}/stakeholders/${encodeURIComponent(id)}/restore`, {}).subscribe({
+      next: () => this.loadStakeholders(),
       error: (e) => { this.addError.set(this.msg(e)); },
     });
   }
@@ -530,7 +737,7 @@ export class App {
     this.stakeLoading.set(true); this.error.set('');
     this.http.post<StakeResult>(`${API}/analyze/stakeholders`,
       { text, language: this.lang() }).subscribe({
-      next: (r) => { this.stake.set(r); this.stakeLoading.set(false); },
+      next: (r) => { this.stake.set(r.reactions.length ? r : null); this.stakeLoading.set(false); },
       error: (e) => { this.error.set(this.msg(e)); this.stakeLoading.set(false); },
     });
   }
@@ -633,7 +840,11 @@ export class App {
         : fill(b.reasonNoneOnList, { tokens });
       const verdict = tr.band === 'High' ? b.reasonAbove : tr.band === 'Low' ? b.reasonBelow
         : tr.raw_band !== tr.band ? fill(b.reasonThin, { x: this.bandLabel(tr.raw_band ?? '') }) : b.reasonUsual;
-      return `${share} ${verdict}`;
+      const skip = (n: number | undefined, words: Record<string, number> | undefined, text: string) =>
+        n ? ' ' + fill(text, { n, words: this.wordsFound(words ?? {}, limit) }) : '';
+      const skipped = skip(tr.skipped?.other, tr.skipped_matches?.other, b.reasonSkippedOther)
+        + skip(tr.skipped?.denied, tr.skipped_matches?.denied, b.reasonSkippedDenied);
+      return `${share}${skipped} ${verdict}`;
     }
     const m = tr.matches as Record<string, Record<string, number>>;
     const [firstKey, secondKey, firstN, secondN] = trait === 'TASK'
@@ -728,6 +939,7 @@ export class App {
         </div>`).join('');
       stake = `<h2>${this.esc(b.stakeHeading)}${st.method === 'llm' ? ` (${this.esc(b.pdfAiHeading)})` : ''}</h2>
         <p>${this.esc(b.stakeIntro)}</p>
+        ${st.read_in_parts && !st.excerpted ? `<p class="rat">${this.esc(this.partsNote(st.read_in_parts))}</p>` : ''}
         ${st.excerpted ? `<p class="rat">${this.esc(this.excerptNote(st.excerpted))}</p>` : ''}${rows}`;
     }
 
@@ -743,7 +955,7 @@ export class App {
         td { border: 1px solid #ccc; padding: 5px 8px; font-size: 13px; }
         .quote { white-space: pre-line; background: #f6f6f6; border: 1px solid #ddd;
           border-radius: 6px; padding: 10px 12px; font-size: 12px; line-height: 1.8; }
-        .hl { padding: 0 1px 3px; border-radius: 2px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .hl { padding: 1px 2px 4px; border-radius: 3px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         .hl-legend { font-size: 11px; line-height: 2; margin: 6px 0; }
         .hl-legend .hl { margin-inline-end: 10px; }
         .ai-row { margin: 8px 0; }

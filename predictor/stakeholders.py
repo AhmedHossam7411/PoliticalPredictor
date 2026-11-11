@@ -14,11 +14,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import httpx
 
-from .llm import (_LANG_NAMES, LLMNotConfigured, available, fit_speech, input_note, chat_json,
+from .llm import (_LANG_NAMES, FALLBACK_MODELS, LLMNotConfigured, available, estimate_tokens,
+                  fit_speech, input_note, chat_json, split_parts,
                   not_configured_reason)
 from . import store as _storage
 
@@ -46,145 +49,259 @@ def _load_builtin_profiles() -> None:
 _load_builtin_profiles()
 
 # --- The stakeholder panel --------------------------------------------------
-# Each profile is deliberately structured so both the UI and the heuristic can
-# use it directly.
+# Real public figures. Each profile summarises long-standing, publicly stated
+# positions (no invented quotes or speeches) so both the UI and the heuristic can
+# use it directly. Office-holders checked November 2026; review them as roles change.
+# A real speech saved as baseline_speeches/<id>.txt calibrates that person.
 _BUILTIN: list[dict] = [
+    # ---- MENA leaders ----
     {
-        "id": "hassan",
-        "name": "Hassan El-Masry",
-        "role": "Industrial Magnate — CEO, El-Masry Industries",
-        "scope": "National",
-        "personality": "Pragmatic, calm, long-term, dislikes uncertainty.",
-        "values": ["Economic growth", "Industrial competitiveness", "Stability",
-                   "Predictable government policy"],
-        "supports": ["Infrastructure investment", "Industrial subsidies",
-                     "Trade agreements", "Tax incentives", "Business-friendly reforms"],
-        "opposes": ["High tariffs on raw materials",
-                    "Strict environmental regulations without transition periods",
-                    "Sudden tax increases", "Rapid minimum wage increases"],
-        "concerns": ["Taxes", "Tariffs", "Energy prices", "Labor costs",
-                     "Environmental regulations", "Exchange rates", "Infrastructure"],
-        "responses": ["Lobby government", "Commission economic reports",
-                      "Meet ministers privately", "Delay investments until policy is clearer"],
+        "id": "sisi", "name": "Abdel Fattah el-Sisi", "role": "President of Egypt",
+        "scope": "Egypt",
+        "personality": "Public messaging stresses state stability, security and national "
+                       "megaprojects; a cautious, state-led approach to reform.",
+        "values": ["National security", "State stability", "Economic development", "Sovereignty"],
+        "supports": ["National infrastructure megaprojects", "IMF-backed economic reform",
+                     "Palestinian statehood", "Gaza ceasefire and reconstruction",
+                     "Counter-terrorism cooperation", "Foreign investment in Egypt"],
+        "opposes": ["Displacement of Palestinians into Sinai", "Political Islamist movements",
+                    "Foreign interference in Egyptian affairs",
+                    "Unilateral Nile dam filling without agreement"],
+        "concerns": ["Nile water security", "Inflation and the pound", "Suez Canal revenue",
+                     "Gaza border", "Instability in Libya and Sudan", "External debt"],
+        "responses": ["Issue a presidential statement", "Coordinate with Gulf and Western partners",
+                      "Direct the government to adjust policy", "Raise it in diplomatic talks"],
     },
     {
-        "id": "salma",
-        "name": "Salma Naguib",
-        "role": "Small Business Owner — three cafés and a bakery",
-        "scope": "Local",
-        "personality": "Hard-working, optimistic, adaptable, community-oriented.",
-        "values": ["Entrepreneurship", "Fair competition", "Affordable financing",
-                   "Customer loyalty"],
-        "supports": ["Small business grants", "Lower taxes", "Reduced bureaucracy",
-                     "Better public transportation"],
-        "opposes": ["Expensive licensing", "Higher payroll taxes", "Complex regulations"],
-        "concerns": ["Rent", "Taxes", "Inflation", "Labor costs", "Licensing",
-                     "Utility bills"],
-        "responses": ["Adjust prices", "Reduce hiring", "Publicly share her struggles",
-                      "Join local business associations"],
+        "id": "mbs", "name": "Mohammed bin Salman",
+        "role": "Crown Prince and Prime Minister of Saudi Arabia", "scope": "Saudi Arabia",
+        "personality": "Drives rapid, top-down economic and social modernisation under "
+                       "Vision 2030; assertive about Saudi regional leadership.",
+        "values": ["Vision 2030 diversification", "Saudi regional leadership", "Security",
+                   "Investment"],
+        "supports": ["Economic diversification away from oil", "Foreign direct investment",
+                     "Tourism and giga-projects", "Regional de-escalation",
+                     "Palestinian statehood before normalisation with Israel",
+                     "OPEC+ production coordination"],
+        "opposes": ["Iranian regional expansion", "Armed militias outside state control",
+                    "Foreign criticism of Saudi internal affairs", "Oil price collapse"],
+        "concerns": ["Oil prices", "Red Sea and Gulf shipping", "Iran", "Yemen",
+                     "Investment climate", "Gaza"],
+        "responses": ["Announce investment or aid packages", "Convene a regional summit",
+                      "Use oil policy through OPEC+", "Mediate through diplomatic channels"],
     },
     {
-        "id": "omar",
-        "name": "Omar Farouk",
-        "role": "Labor Union President — National Workers Federation (320,000 workers)",
-        "scope": "National",
-        "personality": "Passionate, charismatic, confrontational, persistent.",
-        "values": ["Worker rights", "Fair wages", "Job security", "Safe workplaces"],
-        "supports": ["Higher minimum wages", "Strong labor protections", "Paid leave",
-                     "Worker safety laws"],
-        "opposes": ["Privatization", "Layoffs", "Reduced labor protections"],
-        "concerns": ["Layoffs", "Automation", "Workplace safety", "Wage growth", "Benefits"],
-        "responses": ["Organize demonstrations", "Speak to media",
-                      "Negotiate with government", "Mobilize workers"],
+        "id": "mbz", "name": "Mohamed bin Zayed", "role": "President of the United Arab Emirates",
+        "scope": "UAE",
+        "personality": "Security-focused and pragmatic; builds wide economic and security "
+                       "partnerships.",
+        "values": ["Stability", "Economic openness", "Security", "Tolerance"],
+        "supports": ["Normalisation under the Abraham Accords", "Trade and logistics investment",
+                     "Technology and AI investment", "Regional de-escalation",
+                     "Countering political Islam"],
+        "opposes": ["Muslim Brotherhood and political Islamist groups", "Extremism",
+                    "Iranian-backed militias", "Attacks on shipping"],
+        "concerns": ["Red Sea and Hormuz shipping", "Sudan", "Yemen", "Iran", "Investment flows"],
+        "responses": ["Invest or provide financial support", "Issue a foreign ministry statement",
+                      "Quiet diplomacy with partners", "Security cooperation"],
     },
     {
-        "id": "layla",
-        "name": "Dr. Layla Hassan",
-        "role": "Environmental Scientist — Director, Green Future Foundation",
-        "scope": "National",
-        "personality": "Analytical, idealistic, patient, data-driven.",
-        "values": ["Sustainability", "Public health", "Long-term planning",
-                   "Scientific evidence"],
-        "supports": ["Carbon taxes", "Renewable energy", "Emission standards",
-                     "Public transport"],
-        "opposes": ["Fossil fuel subsidies", "Deforestation",
-                    "Weak environmental enforcement"],
-        "concerns": ["Carbon emissions", "Air quality", "Water resources",
-                     "Biodiversity", "Renewable energy"],
-        "responses": ["Publish research", "Advocate publicly", "Meet legislators",
-                      "Educate citizens"],
+        "id": "tamim", "name": "Tamim bin Hamad Al Thani", "role": "Emir of Qatar",
+        "scope": "Qatar",
+        "personality": "Positions Qatar as a mediator; an independent foreign policy that "
+                       "keeps channels open to many sides.",
+        "values": ["Mediation", "Sovereignty", "Humanitarian support", "Energy partnerships"],
+        "supports": ["Negotiated ceasefires and mediation", "Humanitarian aid to Gaza",
+                     "Palestinian statehood", "LNG export partnerships",
+                     "Dialogue with all parties"],
+        "opposes": ["Blockades and sanctions on Qatar", "Collective punishment of civilians",
+                    "Military escalation", "Violations of Qatari sovereignty"],
+        "concerns": ["Gaza", "Gulf security", "LNG markets", "Regional escalation"],
+        "responses": ["Offer to mediate", "Host negotiations in Doha", "Fund humanitarian aid",
+                      "Issue a foreign ministry statement"],
     },
     {
-        "id": "karim",
-        "name": "Karim Adel",
-        "role": "Technology Entrepreneur — Founder, AI software company",
-        "scope": "National",
-        "personality": "Innovative, risk-taking, competitive, fast decision maker.",
-        "values": ["Innovation", "Entrepreneurship", "Global competitiveness",
-                   "Digital transformation"],
-        "supports": ["Startup incentives", "Research funding", "Digital government",
-                     "STEM education"],
-        "opposes": ["Excessive AI regulation", "Restrictions on data",
-                    "High corporate taxes"],
-        "concerns": ["Data privacy", "AI regulation", "Skilled labor",
-                     "Internet infrastructure", "Venture capital"],
-        "responses": ["Adapt quickly", "Invest in new technology",
-                      "Relocate operations if necessary", "Publicly advocate innovation"],
+        "id": "abdullah-ii", "name": "King Abdullah II", "role": "King of Jordan",
+        "scope": "Jordan",
+        "personality": "A moderate diplomatic voice; stresses Hashemite custodianship of "
+                       "Jerusalem's Muslim and Christian holy sites.",
+        "values": ["Stability", "Moderation", "Custodianship of Jerusalem's holy sites",
+                   "Two-state solution"],
+        "supports": ["Two-state solution", "Status quo at Jerusalem holy sites",
+                     "Humanitarian aid to Gaza", "Economic aid and investment for Jordan",
+                     "Refugee burden-sharing"],
+        "opposes": ["Displacement of Palestinians into Jordan", "Annexation of the West Bank",
+                    "Changes to the Al-Aqsa status quo", "Extremism"],
+        "concerns": ["Refugees", "Water scarcity", "Unemployment", "West Bank", "Border security"],
+        "responses": ["Issue a Royal Court statement", "Lobby Western capitals",
+                      "Coordinate with Egypt and the Gulf", "Raise it at the UN"],
     },
     {
-        "id": "fatma",
-        "name": "Fatma Mahmoud",
-        "role": "Middle-Class Citizen — public school teacher",
-        "scope": "Household",
-        "personality": "Practical, caring, risk-averse, honest.",
-        "values": ["Family stability", "Affordable living", "Education", "Healthcare"],
-        "supports": ["Better healthcare", "Better education", "Lower inflation",
-                     "Consumer protections"],
-        "opposes": ["Higher living costs", "Cuts to public services",
-                    "Regressive taxation"],
-        "concerns": ["Inflation", "Taxes", "Food prices", "Fuel prices", "Public services"],
-        "responses": ["Vote", "Discuss policies within her community",
-                      "Adjust household spending", "Participate in public consultations"],
+        "id": "erdogan", "name": "Recep Tayyip Erdoğan", "role": "President of Turkey",
+        "scope": "Turkey",
+        "personality": "Assertive, populist speaking style; seeks an independent regional "
+                       "role for Turkey.",
+        "values": ["National sovereignty", "Turkish regional influence",
+                   "Religious-conservative identity", "Economic growth"],
+        "supports": ["The Palestinian cause", "Turkish defence industry",
+                     "Syrian reconstruction and refugee returns",
+                     "Mediation between Russia and Ukraine", "Trade expansion"],
+        "opposes": ["Kurdish militant groups (PKK/YPG)", "Israeli military operations in Gaza",
+                    "Western criticism of Turkey", "Sanctions on Turkey"],
+        "concerns": ["Inflation and the lira", "Syrian border", "Refugees", "Energy",
+                     "Kurdish autonomy"],
+        "responses": ["Give a strong public speech", "Summon or recall ambassadors",
+                      "Military or security operation", "Offer mediation"],
     },
     {
-        "id": "nadia",
-        "name": "Ambassador Nadia Ibrahim",
-        "role": "Senior Government Diplomat — Deputy Minister for International Affairs",
-        "scope": "National",
-        "personality": "Strategic, diplomatic, patient, highly disciplined.",
-        "values": ["National interest", "International stability",
-                   "Strategic partnerships", "Economic cooperation"],
-        "supports": ["International cooperation", "Trade agreements", "Regional stability",
-                     "Diplomatic engagement"],
-        "opposes": ["Policies that isolate the country", "Trade wars",
-                    "Diplomatic escalation"],
-        "concerns": ["Foreign relations", "Trade agreements", "National security",
-                     "International reputation", "Sanctions"],
-        "responses": ["Negotiate", "Coordinate with ministries",
-                      "Assess geopolitical impacts", "Recommend policy adjustments"],
+        "id": "netanyahu", "name": "Benjamin Netanyahu",
+        "role": "Prime Minister of Israel, Likud leader", "scope": "Israel",
+        "personality": "Security-first; frames issues around threats to Israel and close "
+                       "ties with Washington.",
+        "values": ["Israeli security", "Jewish state", "Alliance with the United States",
+                   "Deterrence"],
+        "supports": ["Military pressure on Hamas and Hezbollah",
+                     "Normalisation with Arab states", "Pressure on Iran's nuclear programme",
+                     "US-Israel security cooperation", "Settlements in the West Bank"],
+        "opposes": ["Palestinian statehood", "Iranian nuclear programme", "Hamas and Hezbollah",
+                    "International court action against Israel", "UN criticism of Israel"],
+        "concerns": ["Iran", "Gaza", "Hostages", "Coalition politics", "US support"],
+        "responses": ["Issue a Prime Minister's Office statement", "Military action",
+                      "Lobby Washington", "Reject international resolutions"],
     },
     {
-        "id": "ibrahim",
-        "name": "Ibrahim Saleh",
-        "role": "Institutional Investor — CEO, Horizon Capital Investment Fund",
-        "scope": "National",
-        "personality": "Highly analytical, cautious, numbers-driven, opportunistic.",
-        "values": ["Market stability", "Predictable regulation", "Sustainable growth",
-                   "Strong financial institutions"],
-        "supports": ["Fiscal responsibility", "Stable regulations",
-                     "Capital market reforms", "Infrastructure investment"],
-        "opposes": ["Policy uncertainty", "Sudden tax changes",
-                    "Excessive government debt", "Currency instability"],
-        "concerns": ["Interest rates", "Inflation", "Fiscal policy",
-                     "Political stability", "Market confidence"],
-        "responses": ["Rebalance investments", "Issue market analyses",
-                      "Meet policymakers", "Advise clients on risk"],
+        "id": "pezeshkian", "name": "Masoud Pezeshkian", "role": "President of Iran",
+        "scope": "Iran",
+        "personality": "Reformist-leaning within the system; publicly favours dialogue, while "
+                       "the Supreme Leader has the final say on security policy.",
+        "values": ["Sovereignty", "The Islamic Republic", "Economic relief", "Ties with neighbours"],
+        "supports": ["Sanctions relief through negotiation", "Better ties with neighbouring states",
+                     "The Palestinian cause", "Regional economic cooperation"],
+        "opposes": ["US and Israeli military strikes", "Sanctions on Iran",
+                    "Western interference", "Arab normalisation with Israel"],
+        "concerns": ["Sanctions", "Inflation and the rial", "Security", "Energy shortages"],
+        "responses": ["Issue a government statement", "Diplomatic outreach to neighbours",
+                      "Defer to the Supreme Leader on security", "Raise it at the UN"],
+    },
+    {
+        "id": "abbas", "name": "Mahmoud Abbas",
+        "role": "President of the Palestinian Authority, PLO chairman", "scope": "Palestine",
+        "personality": "Committed to diplomacy and international law over armed struggle.",
+        "values": ["Palestinian statehood", "International legitimacy", "Non-violent diplomacy",
+                   "Authority of the PA"],
+        "supports": ["Two-state solution on 1967 lines", "UN recognition of Palestine",
+                     "Ceasefire in Gaza", "PA governance of Gaza", "International aid"],
+        "opposes": ["Israeli settlements", "Annexation", "Displacement of Palestinians",
+                    "Hamas control of Gaza", "Plans to relocate Gazans"],
+        "concerns": ["Gaza", "West Bank", "PA finances", "Jerusalem", "Elections"],
+        "responses": ["Appeal to the UN and international courts", "Issue a presidential statement",
+                      "Seek Arab League support", "Suspend or resume coordination"],
+    },
+    {
+        "id": "sharaa", "name": "Ahmed al-Sharaa", "role": "President of Syria",
+        "scope": "Syria",
+        "personality": "Leads Syria's post-Assad transition; stresses unity, reconstruction "
+                       "and ending Syria's isolation.",
+        "values": ["Syrian unity", "Reconstruction", "Sovereignty", "Sanctions relief"],
+        "supports": ["Lifting sanctions on Syria", "Reconstruction investment",
+                     "Partnership with the Gulf and Turkey", "Return of refugees",
+                     "Central government control of territory"],
+        "opposes": ["Israeli strikes and incursions in Syria", "Armed groups outside state control",
+                    "Partition of Syria", "Iranian and Hezbollah influence in Syria"],
+        "concerns": ["Economy", "Security", "Sanctions", "Minority relations",
+                     "Israeli presence in the south"],
+        "responses": ["Visit regional capitals", "Issue a presidency statement",
+                      "Request international support", "Security measures"],
+    },
+    # ---- Influential Egyptians ----
+    {
+        "id": "madbouly", "name": "Mostafa Madbouly", "role": "Prime Minister of Egypt",
+        "scope": "Egypt",
+        "personality": "Technocratic; focused on delivering the economic programme and "
+                       "attracting investment.",
+        "values": ["Economic reform", "Investment", "Fiscal discipline", "Development"],
+        "supports": ["Sale of state assets to private investors", "Foreign direct investment",
+                     "The IMF programme", "Infrastructure and new cities", "Export growth"],
+        "opposes": ["Rising debt service", "Black-market currency trading",
+                    "Delays to investment projects"],
+        "concerns": ["Inflation", "Debt", "Foreign currency", "Subsidies", "Prices"],
+        "responses": ["Hold a press conference", "Announce cabinet measures",
+                      "Adjust subsidies or prices", "Meet investors"],
+    },
+    {
+        "id": "abdelatty", "name": "Badr Abdelatty", "role": "Foreign Minister of Egypt",
+        "scope": "Egypt",
+        "personality": "Career diplomat; very active in mediation and crisis diplomacy.",
+        "values": ["Egyptian national security", "Diplomacy", "Arab solidarity", "Sovereignty"],
+        "supports": ["Gaza ceasefire and reconstruction", "Two-state solution",
+                     "Political settlements in Sudan and Libya",
+                     "A binding agreement on the Nile dam"],
+        "opposes": ["Displacement of Palestinians", "Unilateral action on the Nile",
+                    "Foreign interference", "Military escalation"],
+        "concerns": ["Gaza", "Sudan", "Libya", "Nile water", "Red Sea security"],
+        "responses": ["Call foreign counterparts", "Issue a foreign ministry statement",
+                      "Host talks in Cairo", "Raise it at the UN or Arab League"],
+    },
+    {
+        "id": "hassan-abdalla", "name": "Hassan Abdalla",
+        "role": "Governor of the Central Bank of Egypt", "scope": "Egypt",
+        "personality": "Focused on bringing inflation down and keeping a flexible exchange rate.",
+        "values": ["Price stability", "Monetary credibility", "Banking stability",
+                   "Foreign reserves"],
+        "supports": ["Flexible exchange rate", "Inflation targeting",
+                     "Foreign currency inflows", "Banking sector reform"],
+        "opposes": ["Inflationary spending", "Parallel currency market", "Uncontrolled borrowing"],
+        "concerns": ["Inflation", "Exchange rate", "Reserves", "Interest rates", "Capital flows"],
+        "responses": ["Change interest rates", "Issue a monetary policy statement",
+                      "Act through the banking system", "Tighten or ease credit"],
+    },
+    {
+        "id": "el-tayeb", "name": "Sheikh Ahmed el-Tayeb", "role": "Grand Imam of Al-Azhar",
+        "scope": "Egypt",
+        "personality": "Moderate religious authority; stresses coexistence and Al-Azhar's "
+                       "independence.",
+        "values": ["Moderate Islam", "Interfaith coexistence", "Human fraternity", "Justice"],
+        "supports": ["Interfaith dialogue", "Humanitarian aid to Gaza", "Palestinian rights",
+                     "Religious education", "Peace"],
+        "opposes": ["Extremism and terrorism", "Islamophobia", "Attacks on civilians",
+                    "Desecration of holy sites"],
+        "concerns": ["Extremism", "Gaza", "Jerusalem", "Social values", "Religious discourse"],
+        "responses": ["Issue an Al-Azhar statement", "Give religious guidance",
+                      "Launch an interfaith initiative", "Call for aid"],
+    },
+    {
+        "id": "tawadros", "name": "Pope Tawadros II",
+        "role": "Pope of Alexandria, Coptic Orthodox Church", "scope": "Egypt",
+        "personality": "Stresses national unity and Christian–Muslim coexistence; supportive "
+                       "of the Egyptian state.",
+        "values": ["National unity", "Religious freedom", "The Coptic community", "Peace"],
+        "supports": ["Equal citizenship", "Church building rights", "National unity",
+                     "Interfaith dialogue", "Peace efforts"],
+        "opposes": ["Sectarian violence", "Extremism", "Attacks on churches"],
+        "concerns": ["Christian community safety", "Citizenship rights", "Emigration",
+                     "Social cohesion"],
+        "responses": ["Issue a church statement", "Give a pastoral message",
+                      "Meet state officials", "Interfaith visits"],
+    },
+    {
+        "id": "sawiris", "name": "Naguib Sawiris",
+        "role": "Businessman and investor, founder of Orascom Telecom", "scope": "Egypt",
+        "personality": "Outspoken and pro-market; often comments publicly on economic policy.",
+        "values": ["Free markets", "Private sector", "Liberal values", "Investment"],
+        "supports": ["Private sector growth", "A smaller state role in business",
+                     "Foreign investment", "Tax incentives", "Mining and gold investment"],
+        "opposes": ["State-owned companies competing with private business", "Bureaucracy",
+                    "Heavy taxation", "Religious conservatism in policy"],
+        "concerns": ["Exchange rate", "Investment climate", "Taxes", "Regulation"],
+        "responses": ["Comment on TV or social media", "Invest or delay investments",
+                      "Lobby the government", "Back business initiatives"],
     },
 ]
 
 # --- Built-in + user-added panel -------------------------------------------
 STAKEHOLDERS: list[dict] = []
 PROFILES_PUBLIC: list[dict] = []
+REMOVED_BUILTINS: list[dict] = []  # built-ins taken off the panel, for restoring
 
 
 def _public(s: dict) -> dict:
@@ -207,9 +324,11 @@ def _view(record: dict) -> dict:
 
 def _rebuild() -> None:
     """Refresh the merged panel + profiles from the built-ins and the store."""
-    global STAKEHOLDERS, PROFILES_PUBLIC, BASELINE_PROFILES
+    global STAKEHOLDERS, PROFILES_PUBLIC, REMOVED_BUILTINS, BASELINE_PROFILES
     custom = _store.list()
-    STAKEHOLDERS = _BUILTIN + [_view(r) for r in custom]
+    hidden = _store.hidden()
+    STAKEHOLDERS = [s for s in _BUILTIN if s["id"] not in hidden] + [_view(r) for r in custom]
+    REMOVED_BUILTINS = [{"id": s["id"], "name": s["name"]} for s in _BUILTIN if s["id"] in hidden]
     PROFILES_PUBLIC = [_public(s) for s in STAKEHOLDERS]
     profiles = dict(_BUILTIN_PROFILES)
     for r in custom:
@@ -243,7 +362,7 @@ def _speech_by_id(sid: str) -> str:
 def list_speeches() -> list[dict]:
     """Available baseline speeches for the 'reuse an existing speech' picker:
     the bundled built-ins plus any custom stakeholder that has one."""
-    names = {s["id"]: s["name"] for s in STAKEHOLDERS}
+    names = {s["id"]: s["name"] for s in _BUILTIN + STAKEHOLDERS}
     out, seen = [], set()
     if _BASELINE_DIR.exists():
         for f in sorted(_BASELINE_DIR.glob("*.txt")):
@@ -263,7 +382,8 @@ def add_stakeholder(data: dict, language: str = "en") -> dict:
         raise ValueError("A stakeholder name is required.")
 
     base_id = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "stakeholder"
-    taken = {s["id"] for s in STAKEHOLDERS}
+    # Removed built-ins keep their id: they can be restored, and their profile stays bundled.
+    taken = {s["id"] for s in _BUILTIN + STAKEHOLDERS}
     sid, n = base_id, 2
     while sid in taken:
         sid, n = f"{base_id}-{n}", n + 1
@@ -304,11 +424,88 @@ def add_stakeholder(data: dict, language: str = "en") -> dict:
 
 
 def delete_stakeholder(sid: str) -> bool:
-    """Remove a user-added stakeholder (built-ins cannot be deleted)."""
-    if not _store.delete(sid):
+    """Take a stakeholder off the panel: built-ins can be restored, user-added ones are gone."""
+    if any(s["id"] == sid for s in _BUILTIN):
+        if not any(s["id"] == sid for s in STAKEHOLDERS):
+            return False
+        _store.set_hidden(sid, True)
+    elif not _store.delete(sid):
         return False
     _rebuild()
     return True
+
+
+def restore_stakeholder(sid: str) -> bool:
+    """Put a removed built-in back on the panel."""
+    if not any(s["id"] == sid for s in REMOVED_BUILTINS):
+        return False
+    _store.set_hidden(sid, False)
+    _rebuild()
+    return True
+
+
+# --- Word-scorer profile from a stakeholder's own speeches --------------------
+_MIN_SPEECH_WORDS = 50
+_profile_cache: dict[str, dict] = {}
+
+
+def speeches_of(sid: str) -> list[dict]:
+    """Every speech on file for a stakeholder: the bundled baseline, the one entered
+    when a custom stakeholder was added, and any saved from their profile."""
+    out = []
+    f = _BASELINE_DIR / f"{sid}.txt"
+    if f.exists():
+        out.append({"id": "file", "title": f.name, "text": f.read_text(encoding="utf-8"),
+                    "removable": False})
+    for r in _store.list():
+        if r.get("id") == sid and r.get("speech"):
+            out.append({"id": "custom", "title": "Baseline speech", "text": r["speech"],
+                        "removable": False})
+    out += [{**r, "removable": True} for r in _store.speeches(sid)]
+    return out
+
+
+def add_speech(sid: str, text: str, title: str = "") -> dict:
+    text = (text or "").strip()
+    if len(text.split()) < _MIN_SPEECH_WORDS:
+        raise ValueError(f"A speech needs at least {_MIN_SPEECH_WORDS} words.")
+    import time as _t
+    import uuid
+    first = next((l.strip() for l in text.splitlines() if l.strip()), "")
+    _store.add_speech(sid, {"id": uuid.uuid4().hex[:12], "title": (title or first)[:120].strip(),
+                            "text": text, "added": _t.strftime("%Y-%m-%d")})
+    return word_profile(sid)
+
+
+def delete_speech(sid: str, speech_id: str) -> bool:
+    return _store.delete_speech(sid, speech_id)
+
+
+def word_profile(sid: str) -> dict:
+    """The word scorer run on everything this person said that is on file, one result
+    per language (Arabic and English are scored against their own norms)."""
+    from .arabic import is_arabic
+    from .score import analyze_with_bands
+    speeches = speeches_of(sid)
+    listed = [{"id": s["id"], "title": s.get("title") or "", "words": len(s["text"].split()),
+               "language": "ar" if is_arabic(s["text"]) else "en", "added": s.get("added"),
+               "removable": s["removable"]} for s in speeches]
+    results = []
+    for lang in ("en", "ar"):
+        texts = [s["text"] for s, l in zip(speeches, listed) if l["language"] == lang]
+        if not texts:
+            continue
+        text = "\n\n".join(texts)
+        key = f"{lang}:{hash(text)}"
+        if key not in _profile_cache:
+            r = analyze_with_bands(text)["lta"]
+            _profile_cache[key] = {
+                "language": lang, "speeches": len(texts), "tokens": r["tokens"],
+                "traits": {t: {"band": v["band"], "percent": round(v.get("percent", 0.0), 1),
+                               "confidence": v.get("confidence")} for t, v in r["traits"].items()},
+            }
+        results.append(_profile_cache[key])
+    return {"speeches": listed, "results": results}
 
 
 # --- Keyword heuristic ------------------------------------------------------
@@ -421,6 +618,9 @@ keywords. Where a stakeholder includes a Worldview / Decision style / Reacts \
 profile (distilled from their own baseline speech), weigh it heavily: reason the \
 way THAT person reasons, and ground your rationale in their stated tendencies.
 
+The stakeholders are real public figures. Ground each judgment in their documented public
+positions; never invent quotes, private views or events.
+
 For each stakeholder decide:
 - stance: exactly one of "Support", "Oppose", "Mixed", or "Neutral".
 - confidence: integer 0-100 (how clearly the text implicates their interests).
@@ -443,10 +643,67 @@ def _language_instruction(language: str) -> str:
     )
 
 
+_NOTES_PROMPT = """You are reading part {i} of {n} of a long political speech or \
+document. Another analyst will use your notes, together with the notes on every \
+other part, to predict how political leaders and public figures react to the WHOLE \
+document. Note, in order: every position, promise, threat, policy or decision; \
+every country, group or person mentioned and how they are described; and the tone. \
+Quote the speaker's most important phrases exactly. Write in English, at most 300 \
+words. Respond ONLY with JSON: {"notes": "..."}"""
+
+
+def _notes_on_part(part: str, i: int, n: int, model: str | None) -> str:
+    prompt = _NOTES_PROMPT.replace("{i}", str(i + 1)).replace("{n}", str(n))
+    for attempt in range(4):
+        try:
+            data, _ = chat_json([{"role": "system", "content": prompt},
+                                 {"role": "user", "content": part}],
+                                temperature=0.2, model=model, reasoning_effort="low",
+                                max_wait=60.0)
+            return str(data.get("notes", "")).strip()
+        except httpx.HTTPStatusError as exc:
+            # Free tiers allow a few thousand tokens a minute: wait and go again.
+            if exc.response.status_code != 429 or attempt == 3:
+                raise
+            time.sleep(20 * (attempt + 1))
+    return ""
+
+
+def read_in_parts(text: str) -> list[str]:
+    """Notes on every part of a long document, in order.
+
+    Parts go to the fallback models, each with its own per-minute quota, so the
+    main model stays free for the final judgement.
+    """
+    parts = split_parts(text)
+    models = FALLBACK_MODELS or [None]
+    with ThreadPoolExecutor(max_workers=len(models)) as pool:
+        return list(pool.map(lambda i: _notes_on_part(parts[i], i, len(parts), models[i % len(models)]),
+                             range(len(parts))))
+
+
 def llm_react(text: str, language: str = "en", timeout: float | None = None) -> dict:
     system = _SYSTEM_PROMPT + input_note(text)[1] + _language_instruction(language)
     profiles = f"Stakeholders:\n{_profiles_for_prompt()}\n\n"
     sent, excerpt_note, excerpted = fit_speech(text, system + profiles)
+    parts_read = None
+    if excerpted:
+        # Too long for one call: read every part, then judge from the notes.
+        try:
+            notes = read_in_parts(text)
+            joined = "\n\n".join(f"[Part {i + 1} of {len(notes)}]\n{n}" for i, n in enumerate(notes))
+            total = len(text.split())
+            sent, excerpt_note, excerpted = fit_speech(joined, system + profiles)
+            excerpt_note = (f"\n\nThe document is {total} words long, too long to send whole. "
+                            f"It was read in {len(notes)} consecutive parts and you are given notes "
+                            "on every part, in order. Judge the whole document from them."
+                            + excerpt_note)
+            if excerpted:  # so many parts that even the notes had to be sampled
+                excerpted = {"read_words": int(total * excerpted["read_words"] / excerpted["total_words"]),
+                             "total_words": total}
+            parts_read = {"parts": len(notes), "total_words": total}
+        except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            print(f"[stakeholders] reading in parts failed, using excerpts: {exc}")
     user = f"{profiles}Speech / policy text:\n\n{sent}"
     # Low reasoning effort: this prompt is ~5.5k tokens, and gpt-oss's hidden
     # reasoning otherwise pushes the call near the free tier's 8k/minute cap.
@@ -480,11 +737,14 @@ def llm_react(text: str, language: str = "en", timeout: float | None = None) -> 
     order = {s["id"]: i for i, s in enumerate(STAKEHOLDERS)}
     reactions.sort(key=lambda r: order.get(r["id"], 99))
     return {"reactions": reactions, "method": "llm", "model": model,
-            "calibrated": bool(BASELINE_PROFILES), "excerpted": excerpted}
+            "calibrated": any(s["id"] in BASELINE_PROFILES for s in STAKEHOLDERS),
+            "excerpted": excerpted, "read_in_parts": parts_read}
 
 
 def react(text: str, language: str = "en") -> dict:
     """Predict stakeholder reactions, LLM if configured else heuristic."""
+    if not STAKEHOLDERS:
+        return {"reactions": [], "method": "none"}
     reason = not_configured_reason()
     if available():
         try:
