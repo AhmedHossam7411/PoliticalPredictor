@@ -32,9 +32,17 @@ from . import labels_sync
 from .extract import ExtractError, MAX_BYTES, extract_text
 from .highlight import scorer_spans
 from .speeches import split_speeches
+from .store import SharedFileConflict
 
 app = FastAPI(title="PoliticalPredictor", version="0.1.0",
               summary="LTA + VICS at-a-distance speech scoring")
+
+
+@app.exception_handler(SharedFileConflict)
+async def shared_file_conflict(request: Request, exc: SharedFileConflict):
+    """A shared data file is broken (usually a git merge conflict): say which, change nothing."""
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=409, content={"detail": str(exc)})
 
 
 @app.middleware("http")
@@ -67,6 +75,10 @@ class AnalyzeRequest(BaseModel):
         None, description="Optional texts to norm LTA bands against; "
                           "defaults to the bundled mock-speech corpus.")
     language: str = Field("en", description="Language for LLM prose output (e.g. en, ar)")
+    speaker: str | None = Field(None, description="Stakeholder id of the speaker; their own "
+                                                  "country is left out of the places named")
+    reactors: list[str] | None = Field(None, description="Stakeholder ids the AI reacts for "
+                                                         "(up to 12); the rest get the keyword guess")
 
 
 class BatchRequest(BaseModel):
@@ -144,6 +156,8 @@ def meta(user: str = Depends(auth.require_auth)) -> dict:
         "vics_indices": list(score_vics("placeholder text").keys()),
         "norming_corpus_default": list(MOCK_SPEECHES.keys()),
         "llm_available": llm.available(),
+        "max_ai_reactors": stk.MAX_AI_REACTORS,
+        "default_reactors": stk.DEFAULT_REACTORS,
     }
 
 
@@ -156,10 +170,18 @@ def mock_speeches(user: str = Depends(auth.require_auth)) -> dict:
 @app.post("/analyze")
 def analyze_endpoint(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     norm = _norm_for(req.norming_corpus)
+    home = _home(req.speaker)
     # `spans`: where each counted word sits in the text, for highlighting;
     # `entities`: where countries/organizations are named, and what is said of them.
     return {**analyze_with_bands(req.text, norm), "spans": scorer_spans(req.text),
-            "entities": entities.find(req.text), "entity_summary": entities.summarize(req.text)}
+            "entities": entities.find(req.text, home),
+            "entity_summary": entities.summarize(req.text, exclude=home), "home": [entities.info(k) for k in home]}
+
+
+def _home(speaker: str | None) -> tuple:
+    """The speaker's own country, to leave out of the places named."""
+    key = stk.home_country(speaker)
+    return (key,) if key else ()
 
 
 # --- Context check ---------------------------------------------------------
@@ -168,20 +190,23 @@ class ContextRequest(BaseModel):
     decisions: dict | None = None
     norming_corpus: list[str] | None = None
     source: str = "person"
+    speaker: str | None = None
 
 
 @app.post("/context/review")
 def context_review(req: ContextRequest, user: str = Depends(auth.require_auth)) -> dict:
     """Every sentence with a marked word or a named country/organization."""
-    return ctx.review(req.text)
+    return ctx.review(req.text, _home(req.speaker))
 
 
 @app.post("/context/rescore")
 def context_rescore(req: ContextRequest, user: str = Depends(auth.require_auth)) -> dict:
     """The word-scorer result again, with the context decisions applied."""
     out = ctx.rescore(req.text, req.decisions, _norm_for(req.norming_corpus))
-    return {**out, "spans": scorer_spans(req.text), "entities": entities.find(req.text),
-            "entity_summary": entities.summarize(req.text, ctx.tone_map(req.decisions))}
+    home = _home(req.speaker)
+    return {**out, "spans": scorer_spans(req.text), "entities": entities.find(req.text, home),
+            "entity_summary": entities.summarize(req.text, ctx.tone_map(req.decisions), exclude=home),
+            "home": [entities.info(k) for k in home]}
 
 
 @app.post("/context/ai")
@@ -190,7 +215,7 @@ def context_ai_start(req: ContextRequest, user: str = Depends(auth.require_auth)
     # The saved examples go with it: reused for sentences decided before, shown to Karnak for the rest.
     # Examples that arrived with a `git pull` are read in first.
     labels_sync.pull_in(stk._store)
-    return {"job": ctx.start_ai(req.text, stk._store.labels())}
+    return {"job": ctx.start_ai(req.text, stk._store.labels(), _home(req.speaker))}
 
 
 @app.get("/context/ai/{job_id}")
@@ -396,8 +421,8 @@ def restore_stakeholder_endpoint(sid: str, user: str = Depends(auth.require_auth
 def analyze_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     """Predict how each stakeholder reacts to the speech / policy text, with what
     each of them thinks of the countries and organizations the text names."""
-    out = stk.react(req.text, language=req.language)
-    keys = [e["key"] for e in entities.summarize(req.text)]
+    out = stk.react(req.text, language=req.language, reactors=req.reactors)
+    keys = [e["key"] for e in entities.summarize(req.text, exclude=_home(req.speaker))]
     for r in out.get("reactions", []):
         r["views"] = stk.views_on(r["id"], keys, req.language) if keys else []
     return out
@@ -421,15 +446,35 @@ def _start_job(kind: str, fn, *args) -> str:
     _JOBS[job["id"]] = job
 
     def run():
+        llm.begin_job()
         try:
-            job["result"] = fn(*args)
-            job["status"] = "done"
+            result = fn(*args)
+            if job["status"] == "running":
+                job["result"] = result
+                job["status"] = "done"
         except HTTPException as exc:
-            job.update(status="failed", error=str(exc.detail), code=exc.status_code)
+            if job["status"] == "running":
+                job.update(status="failed", error=str(exc.detail), code=exc.status_code)
+        except llm.Stopped:
+            job.update(status="stopped", error=llm.STOPPED_MESSAGE, code=499)
         except Exception as exc:  # keep the server up; report what went wrong
-            job.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:300], code=500)
+            if job["status"] == "running":
+                job.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:300], code=500)
     _threading.Thread(target=run, daemon=True).start()
     return job["id"]
+
+
+@app.post("/ai/stop")
+def stop_ai(user: str = Depends(auth.require_auth)) -> dict:
+    """Stop AI: end every AI job and cut off the request Karnak is working on, so the
+    next analysis starts straight away."""
+    jobs = 0
+    for job in _JOBS.values():
+        if job["status"] == "running":
+            job.update(status="stopped", error=llm.STOPPED_MESSAGE, code=499)
+            jobs += 1
+    jobs += ctx.cancel_all()
+    return {"stopped_jobs": jobs, "cut_off_requests": llm.stop_all()}
 
 
 @app.post("/jobs/llm")

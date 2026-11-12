@@ -20,11 +20,55 @@ import json
 import os
 from pathlib import Path
 
-_JSON_PATH = Path(__file__).resolve().parent / "custom_stakeholders.json"
-_HIDDEN_PATH = Path(__file__).resolve().parent / "hidden_stakeholders.json"
-_SPEECHES_PATH = Path(__file__).resolve().parent / "stakeholder_speeches.json"
+# The team's data lives in shared/, which is committed: a git push carries added
+# stakeholders, removed ones, profile edits and saved speeches (with the statements
+# saved from the analysis) to every other computer, like the context examples.
+_SHARED = Path(__file__).resolve().parent.parent / "shared"
+_JSON_PATH = _SHARED / "custom_stakeholders.json"
+_HIDDEN_PATH = _SHARED / "hidden_stakeholders.json"
+_SPEECHES_PATH = _SHARED / "stakeholder_speeches.json"
 # Changes made in a stakeholder's profile ({sid: fields}); laid over the original.
-_EDITS_PATH = Path(__file__).resolve().parent / "stakeholder_edits.json"
+_EDITS_PATH = _SHARED / "stakeholder_edits.json"
+
+
+def _move_old_files() -> None:
+    """Earlier versions kept these files in predictor/ (not committed): move them once."""
+    old_dir = Path(__file__).resolve().parent
+    for new in (_JSON_PATH, _HIDDEN_PATH, _SPEECHES_PATH, _EDITS_PATH):
+        old = old_dir / new.name
+        if old.exists() and not new.exists():
+            new.parent.mkdir(parents=True, exist_ok=True)
+            old.replace(new)
+
+
+_move_old_files()
+
+
+class SharedFileConflict(RuntimeError):
+    """A shared file can't be read (for example git left conflict markers in it)."""
+
+
+def _read_json(path: Path, default, strict: bool = False):
+    """A shared JSON file's contents. A missing file is empty. A broken one is reported:
+    reading for display gives the default, but `strict` (before a write) refuses, so a
+    bad git merge is never overwritten and lost."""
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return default
+    except (OSError, json.JSONDecodeError) as exc:
+        msg = (f"{path.name} in shared/ can't be read ({exc}). If git reported a merge "
+               f"conflict in it, fix the file (keep both sides' entries), then try again.")
+        if strict:
+            raise SharedFileConflict(msg) from exc
+        print(f"[store] {msg}")
+        return default
+
+
+def _write_json(path: Path, data) -> None:
+    """Pretty-printed with sorted keys, so git shows and merges changes line by line."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 # Sentences someone (or the AI) reviewed in the context check: examples Karnak follows.
 # Kept in a SQLite database; the old JSON file is moved into it once.
 _LABELS_DB = Path(__file__).resolve().parent / "cortex.db"
@@ -76,76 +120,64 @@ class JsonStore:
         # Only the real database takes in the old JSON file (not a test's temporary one).
         self._labels = SqliteLabels(labels_db, _LABELS_PATH if labels_db == _LABELS_DB else labels_db.with_suffix(".none"))
 
-    def list(self) -> list[dict]:
-        try:
-            return json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return []
+    def list(self, strict: bool = False) -> list[dict]:
+        return _read_json(self.path, [], strict)
 
     def add(self, record: dict) -> None:
-        data = self.list()
+        data = self.list(strict=True)
         data.append(record)
-        self.path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_json(self.path, data)
 
     def delete(self, sid: str) -> bool:
-        data = self.list()
+        data = self.list(strict=True)
         kept = [r for r in data if r.get("id") != sid]
         if len(kept) == len(data):
             return False
-        self.path.write_text(json.dumps(kept, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_json(self.path, kept)
         return True
 
-    def hidden(self) -> set[str]:
-        try:
-            return set(json.loads(self.hidden_path.read_text(encoding="utf-8")))
-        except (OSError, json.JSONDecodeError):
-            return set()
+    def hidden(self, strict: bool = False) -> set[str]:
+        return set(_read_json(self.hidden_path, [], strict))
 
     def set_hidden(self, sid: str, hidden: bool) -> None:
-        ids = self.hidden()
+        ids = self.hidden(strict=True)
         ids = ids | {sid} if hidden else ids - {sid}
-        self.hidden_path.write_text(json.dumps(sorted(ids)), encoding="utf-8")
+        _write_json(self.hidden_path, sorted(ids))
 
     # Speeches saved for a stakeholder (any, built-in or added): {sid: [record, ...]}
-    def _all_speeches(self) -> dict:
-        try:
-            return json.loads(self.speeches_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
+    def _all_speeches(self, strict: bool = False) -> dict:
+        return _read_json(self.speeches_path, {}, strict)
 
     def speeches(self, sid: str) -> list[dict]:
         return self._all_speeches().get(sid, [])
 
     def add_speech(self, sid: str, record: dict) -> None:
-        data = self._all_speeches()
+        data = self._all_speeches(strict=True)
         data.setdefault(sid, []).append(record)
-        self.speeches_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_json(self.speeches_path, data)
 
     def delete_speech(self, sid: str, speech_id: str) -> bool:
-        data = self._all_speeches()
+        data = self._all_speeches(strict=True)
         kept = [r for r in data.get(sid, []) if r.get("id") != speech_id]
         if len(kept) == len(data.get(sid, [])):
             return False
         data[sid] = kept
-        self.speeches_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_json(self.speeches_path, data)
         return True
 
     # Profile edits: {sid: fields}. None removes the edit (back to the original).
-    def edits(self) -> dict:
-        try:
-            return json.loads(_EDITS_PATH.read_text(encoding="utf-8")) if self.path == _JSON_PATH else {}
-        except (OSError, json.JSONDecodeError):
-            return {}
+    def edits(self, strict: bool = False) -> dict:
+        return _read_json(_EDITS_PATH, {}, strict) if self.path == _JSON_PATH else {}
 
     def set_edit(self, sid: str, data: dict | None) -> None:
         if self.path != _JSON_PATH:  # tests with temporary files keep edits in memory only
             return
-        all_edits = self.edits()
+        all_edits = self.edits(strict=True)
         if data is None:
             all_edits.pop(sid, None)
         else:
             all_edits[sid] = data
-        _EDITS_PATH.write_text(json.dumps(all_edits, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_json(_EDITS_PATH, all_edits)
 
     # Labelled sentences from the context check; a sentence saved again replaces itself.
     def labels(self) -> list[dict]:

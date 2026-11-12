@@ -298,24 +298,37 @@ _BUILTIN: list[dict] = [
     },
 ]
 
+# World leaders: G20, G8, BRICS+, the Security Council's permanent members, the EU,
+# the African Union and the Board of Peace (see world_leaders.py).
+from .world_leaders import PEOPLE as _WORLD, CATEGORY as _WORLD_CATEGORY, panel_entry as _panel_entry  # noqa: E402
+
+_BUILTIN += [_panel_entry(p) for p in _WORLD]
+
 # --- Built-in + user-added panel -------------------------------------------
 STAKEHOLDERS: list[dict] = []
 PROFILES_PUBLIC: list[dict] = []
 REMOVED_BUILTINS: list[dict] = []  # built-ins taken off the panel, for restoring
 
 
-# Panel groups: heads of international organisations, of state, of government, and
-# other actors (national bodies such as a central bank, Al-Azhar or a church go here).
-CATEGORIES = ("organization", "state", "government", "other")
-_CATEGORY = {
+# Panel groups: heads of international organisations, heads of state and government
+# (one group), and other actors (national bodies such as a central bank, Al-Azhar or a
+# church go here).
+CATEGORIES = ("organization", "state", "nonstate", "ngo", "other")
+# "government" was its own group; anything saved with it now joins "state".
+_RENAMED = {"government": "state"}
+
+
+def _category(v):
+    v = _RENAMED.get(v, v)
+    return v if v in CATEGORIES else None
+_CATEGORY: dict = {
     "sisi": "state", "mbz": "state", "tamim": "state", "abdullah-ii": "state", "erdogan": "state",
     "abbas": "state", "sharaa": "state",
-    # Saudi Arabia's crown prince is its prime minister; in Iran the president heads the
-    # government and the Supreme Leader is head of state.
-    "mbs": "government", "netanyahu": "government", "pezeshkian": "government", "madbouly": "government",
+    "mbs": "state", "netanyahu": "state", "pezeshkian": "state", "madbouly": "state",
     "hassan-abdalla": "other", "el-tayeb": "other", "tawadros": "other",
     "abdelatty": "other", "sawiris": "other",
 }
+_CATEGORY.update(_WORLD_CATEGORY)
 # A role naming one of these is the head of an international organisation.
 _INTERNATIONAL = ("united nations", "u.n.", "un secretary", "secretary-general of the un", "arab league",
                   "league of arab states", "african union", "european commission", "european council",
@@ -325,16 +338,20 @@ _INTERNATIONAL = ("united nations", "u.n.", "un secretary", "secretary-general o
                   "الأمم المتحدة", "جامعة الدول العربية", "الاتحاد الأفريقي", "البنك الدولي", "صندوق النقد",
                   "منظمة", "الدولي", "الدولية")
 _GUESS = (
-    ("government", ("prime minister", "premier", "chancellor", "head of government", "رئيس الوزراء", "رئيس الحكومة")),
-    ("state", ("president of", "king", "emir", "amir", "sultan", "monarch", "head of state", "crown prince",
+    ("ngo", ("red cross", "red crescent", "ngo", "non-governmental", "charity", "humanitarian organisation",
+             "human rights organisation", "الصليب الأحمر", "الهلال الأحمر", "منظمة غير حكومية", "جمعية خيرية")),
+    ("nonstate", ("armed group", "militia", "paramilitary", "insurgent", "jihadist", "terrorist",
+                  "جماعة مسلحة", "ميليشيا", "تنظيم")),
+    ("state", ("prime minister", "premier", "chancellor", "head of government", "رئيس الوزراء", "رئيس الحكومة",
+               "president of", "king", "emir", "amir", "sultan", "monarch", "head of state", "crown prince",
                "رئيس جمهورية", "رئيس دولة", "الملك", "الأمير", "السلطان")),
 )
 
 
 def category_of(s: dict) -> str:
     """Which panel group a stakeholder belongs to: set by hand, built-in, or guessed from the role."""
-    cat = s.get("category")
-    if cat in CATEGORIES:
+    cat = _category(s.get("category"))
+    if cat:
         return cat
     if s.get("id") in _CATEGORY:
         return _CATEGORY[s["id"]]
@@ -415,6 +432,20 @@ def public_list(language: str = "en") -> list[dict]:
     return [_public(localized(s, language)) for s in STAKEHOLDERS]
 
 
+def home_country(sid: str | None) -> str | None:
+    """The country a stakeholder speaks for (its entity key, e.g. "EG"), if known."""
+    if not sid:
+        return None
+    from . import dossier
+    prof = dossier.PROFILES.get(sid)
+    if prof and prof.get("cc"):
+        return prof["cc"]
+    s = next((x for x in STAKEHOLDERS if x["id"] == sid), None)
+    if not s:
+        return None
+    return dossier.country_of(f"{s.get('role', '')} {s.get('scope', '')}")
+
+
 def profile_edit(sid: str) -> dict:
     """The profile fields changed by hand for this person (background, style, alliances...)."""
     return (_store.edits().get(sid) or {}).get("profile") or {}
@@ -431,7 +462,7 @@ def edit_stakeholder(sid: str, data: dict) -> dict:
             if k in ("values", "supports", "opposes", "concerns", "responses"):
                 v = _as_list(v)
             elif k == "category":
-                v = v if v in CATEGORIES else None
+                v = _category(v)
             else:
                 v = str(v).strip()
             if k == "name" and not v:
@@ -509,7 +540,7 @@ def add_stakeholder(data: dict, language: str = "en") -> dict:
     record = {
         "id": sid, "name": name, "custom": True,
         "role": (data.get("role") or "").strip(),
-        "category": data.get("category") if data.get("category") in CATEGORIES else None,
+        "category": _category(data.get("category")),
         "scope": (data.get("scope") or "").strip() or "Custom",
         "personality": (data.get("personality") or "").strip(),
         "values": _as_list(data.get("values")),
@@ -800,15 +831,30 @@ def _join(items: list[str]) -> str:
 def heuristic_react(text: str, language: str = "en") -> dict:
     text_lc = " " + text.lower() + " "
     return {
-        "reactions": [_heuristic_one(text_lc, s, language) for s in STAKEHOLDERS],
+        "reactions": [{**_heuristic_one(text_lc, s, language), "ai": False} for s in STAKEHOLDERS],
         "method": "heuristic",
     }
 
 
+# --- Who the AI reacts for -------------------------------------------------
+# Karnak reads every chosen profile in one request: about 12 fit, and fewer people
+# give better answers. Everyone else on the panel gets the keyword guess.
+MAX_AI_REACTORS = 12
+# Used when nobody was chosen: the Middle East panel the app started with.
+DEFAULT_REACTORS = ["sisi", "mbs", "mbz", "tamim", "abdullah-ii", "erdogan", "netanyahu",
+                    "pezeshkian", "abbas", "sharaa", "madbouly", "abdelatty"]
+
+
+def chosen_reactors(ids: list[str] | None) -> list[dict]:
+    """The panel entries Karnak reacts for, in panel order (at most MAX_AI_REACTORS)."""
+    wanted = set(ids or DEFAULT_REACTORS)
+    return [s for s in STAKEHOLDERS if s["id"] in wanted][:MAX_AI_REACTORS]
+
+
 # --- LLM engine -------------------------------------------------------------
-def _profiles_for_prompt() -> str:
+def _profiles_for_prompt(panel: list[dict] | None = None) -> str:
     lines = []
-    for s in STAKEHOLDERS:
+    for s in (STAKEHOLDERS if panel is None else panel):
         parts = [
             f"- id={s['id']} | {s['name']} ({s['role']}).",
             f"Values: {', '.join(s['values'])}.",
@@ -898,14 +944,23 @@ def read_in_parts(text: str) -> list[str]:
     """
     parts = split_parts(text)
     models = FALLBACK_MODELS or [None]
+    from . import llm
+    started = getattr(llm._local, "started", None)
+    started = llm._stop_count if started is None else started
+
+    def one(i: int) -> str:
+        llm.join_job(started)  # so Stop AI ends the parts too
+        return _notes_on_part(parts[i], i, len(parts), models[i % len(models)])
+
     with ThreadPoolExecutor(max_workers=len(models)) as pool:
-        return list(pool.map(lambda i: _notes_on_part(parts[i], i, len(parts), models[i % len(models)]),
-                             range(len(parts))))
+        return list(pool.map(one, range(len(parts))))
 
 
-def llm_react(text: str, language: str = "en", timeout: float | None = None) -> dict:
+def llm_react(text: str, language: str = "en", timeout: float | None = None,
+              reactors: list[str] | None = None) -> dict:
+    panel = chosen_reactors(reactors)
     system = _SYSTEM_PROMPT + input_note(text)[1] + _language_instruction(language)
-    profiles = f"Stakeholders:\n{_profiles_for_prompt()}\n\n"
+    profiles = f"Stakeholders:\n{_profiles_for_prompt(panel)}\n\n"
     sent, excerpt_note, excerpted = fit_speech(text, system + profiles)
     parts_read = None
     if excerpted:
@@ -934,7 +989,7 @@ def llm_react(text: str, language: str = "en", timeout: float | None = None) -> 
     ], temperature=0.3, timeout=timeout, reasoning_effort="low", max_wait=60.0)
 
     # Merge model output with the canonical name/role so the UI always has them.
-    by_id = {s["id"]: s for s in STAKEHOLDERS}
+    by_id = {s["id"]: s for s in panel}
     reactions = []
     for r in data.get("reactions", []):
         s = by_id.get(r.get("id"))
@@ -946,30 +1001,31 @@ def llm_react(text: str, language: str = "en", timeout: float | None = None) -> 
             "confidence": int(r.get("confidence", 50)),
             "reasoning": r.get("reasoning", ""),
             "response": r.get("response", s["responses"][0]),
+            "ai": True,
         })
-    # Fill in any stakeholder the model skipped, using the heuristic.
-    if len(reactions) < len(STAKEHOLDERS):
-        seen = {r["id"] for r in reactions}
-        text_lc = " " + text.lower() + " "
-        for s in STAKEHOLDERS:
-            if s["id"] not in seen:
-                reactions.append(_heuristic_one(text_lc, s))
+    # Everyone else on the panel, and anyone the model skipped: the keyword guess.
+    seen = {r["id"] for r in reactions}
+    text_lc = " " + text.lower() + " "
+    for s in STAKEHOLDERS:
+        if s["id"] not in seen:
+            reactions.append({**_heuristic_one(text_lc, s, language), "ai": False})
     # Preserve panel order.
     order = {s["id"]: i for i, s in enumerate(STAKEHOLDERS)}
     reactions.sort(key=lambda r: order.get(r["id"], 99))
     return {"reactions": reactions, "method": "llm", "model": model,
-            "calibrated": any(s["id"] in BASELINE_PROFILES for s in STAKEHOLDERS),
+            "calibrated": any(s["id"] in BASELINE_PROFILES for s in panel),
+            "reactors": [s["id"] for s in panel],
             "excerpted": excerpted, "read_in_parts": parts_read}
 
 
-def react(text: str, language: str = "en") -> dict:
+def react(text: str, language: str = "en", reactors: list[str] | None = None) -> dict:
     """Predict stakeholder reactions, LLM if configured else heuristic."""
     if not STAKEHOLDERS:
         return {"reactions": [], "method": "none"}
     reason = not_configured_reason()
     if available():
         try:
-            return llm_react(text, language=language)
+            return llm_react(text, language=language, reactors=reactors)
         except (httpx.HTTPError, LLMNotConfigured, json.JSONDecodeError,
                 KeyError, TypeError, ValueError) as exc:
             # Fall back rather than fail the request -- but say why.

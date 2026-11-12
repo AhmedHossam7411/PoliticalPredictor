@@ -13,11 +13,10 @@
   display: block; min-height: 100vh; color: var(--on-bg);
   background: linear-gradient(160deg, var(--bg1), var(--bg2)) fixed;
   background-color: var(--bg2);
-  /* Classic book faces: Baskerville / Garamond on the Mac and with Office on Windows,
-     Palatino or Georgia otherwise; a Naskh face for Arabic. */
-  --serif: "Cortex Arabic UI", Baskerville, "Baskerville Old Face", "Libre Baskerville", "Hoefler Text", Garamond,
-           "EB Garamond", "Palatino Linotype", Palatino, Georgia, "Traditional Arabic", "Al Nile",
-           "Geeza Pro", serif;
+  /* General text: the computer's own clean face (Segoe UI on Windows, San Francisco on
+     the Mac), English and Arabic alike. Titles and the logo keep the classic faces. */
+  --serif: "Cortex Arabic UI", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial,
+           "Geeza Pro", sans-serif;
   --display: Didot, "Bodoni 72", "Bodoni MT", "Didot LT STD", "Playfair Display", Baskerville,
              "Baskerville Old Face", Georgia, serif;
   --gold: #c9a24a; --ivory: #f4ecda;
@@ -164,6 +163,24 @@ button.ghost { background: transparent; color: var(--ink); border: 1px solid var
 button.ghost:hover { background: var(--surface2); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 .run-note { color: var(--muted); font-size: 0.82rem; }
+
+/* Guide page: the handbook download and the how-to sections */
+.guide-pdf { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface2); margin-bottom: 1rem; }
+.guide-pdf p { flex: 1 1 100%; margin: 0; }
+a.pdf-btn { text-decoration: none; display: inline-block; }
+.use-h { margin: 0.9rem 0 0.3rem; font-size: 1rem; color: var(--accent); }
+.use-list { margin: 0 0 0.4rem; padding-inline-start: 1.3rem; }
+.use-list li { margin-bottom: 0.3rem; line-height: 1.55; }
+
+/* Stop AI, at the top of the results */
+.ai-stop { display: flex; align-items: center; gap: 0.9rem; flex-wrap: wrap;
+  margin: 0 0 0.9rem; padding: 0.6rem 0.9rem; border: 1px solid var(--line);
+  border-radius: var(--radius); background: var(--card); color: var(--ink); }
+button.stop-ai { background: #b91c1c; white-space: nowrap; }
+button.stop-ai:hover:not(:disabled) { background: #991b1b; }
+button.stop-ai:disabled { background: var(--line); color: var(--muted); cursor: default; }
+.stop-guide { margin: 0; flex: 1 1 18rem; color: var(--muted); font-size: 0.86rem; line-height: 1.5; }
 .error { color: #dc2626; font-weight: 600; margin: 0.75rem 0 0; }
 .placeholder { opacity: 0.85; }
 
@@ -468,7 +485,17 @@ button.tone-btn.on.neutral { background: var(--surface2); color: var(--ink); bor
   display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
 .cx-status.running { background: #eff6ff; color: #1e3a8a; }
 .cx-applied { font-size: 0.82rem; color: #166534; background: #ecfdf3; border-radius: var(--radius); padding: 0.35rem 0.55rem; }
-.cx-list { list-style: decimal; padding-inline-start: 1.4rem; margin: 0.6rem 0; display: grid; gap: 0.55rem; }
+.cx-list { list-style: none; padding-inline-start: 0; margin: 0.6rem 0; display: grid; gap: 0.45rem; }
+.cx-head { cursor: pointer; user-select: none; }
+.cx-caret { color: var(--accent); }
+.cx-closed-note { font-size: 0.82rem; font-weight: 400; color: var(--muted); }
+.cx-rows-tools { margin: 0.3rem 0; }
+button.cx-num { display: flex; align-items: baseline; gap: 0.6rem; width: 100%; max-width: 100%; min-width: 0; white-space: normal; text-align: start;
+  background: transparent; color: var(--ink); border: none; padding: 0.3rem 0.2rem; cursor: pointer; }
+button.cx-num:hover { background: var(--surface2); }
+.cx-n { min-width: 2rem; font-weight: 700; color: var(--accent); }
+.cx-preview { flex: 1 1 0; min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; color: var(--muted); }
+.cx-row-meta { margin-inline-start: auto; font-size: 0.78rem; color: var(--muted); white-space: nowrap; }
 .cx-row { border-bottom: 1px solid var(--line); padding-bottom: 0.5rem; }
 .cx-row.changed { border-inline-start: 3px solid var(--accent); padding-inline-start: 0.5rem; }
 .cx-row.off .cx-text { opacity: 0.55; }
@@ -485,9 +512,18 @@ button.cx-btn { font-size: 0.74rem; padding: 0.12rem 0.5rem; }
 /* Brand: engraved-style capitals, a hairline gold rule, the Arabic name small beneath. */
 .brand-name { justify-self: start; display: inline-flex; flex-direction: column; align-items: center;
   gap: 0.3rem; padding-top: 0; color: var(--ivory); }
-.brand-en { font-family: var(--display); font-weight: 400; font-size: 2.3rem; line-height: 1;
-  text-transform: uppercase; letter-spacing: 0.32em; margin-inline-end: -0.32em; }
-.brand-rule { display: block; width: 100%; height: 1px; background: var(--gold); opacity: 0.85; }
+/* The Cortex logo, cut out of its dark square so it sits in the page itself. */
+.brand-logo { display: block; width: 118px; height: 118px; object-fit: contain;
+  image-rendering: -webkit-optimize-contrast; filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.25)); }
+@media (max-width: 680px) { .brand-logo { width: 92px; height: 92px; } }
+
+/* Floating jump buttons, bottom right, always on screen */
+.jump-btns { position: fixed; right: 1rem; bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); z-index: 900;
+  display: flex; flex-direction: column; gap: 0.45rem; }
+button.jump { width: 2.75rem; height: 2.75rem; padding: 0; border-radius: 50%; font-size: 1rem; line-height: 1;
+  background: rgba(10, 37, 71, 0.88); color: #fff; border: 1px solid rgba(201, 169, 97, 0.7);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35); backdrop-filter: blur(4px); }
+button.jump:hover { background: var(--accent); }
 .brand-ar { font-family: var(--title); font-size: 1rem;
   letter-spacing: 0.05em; color: var(--gold); }
 h1, h2, h3, h4, .login-title { font-family: var(--title); font-weight: 600; letter-spacing: 0.01em; }
@@ -533,3 +569,31 @@ button.tick.wrong.on { background: #dc2626; border-color: #dc2626; color: #fff; 
 .ed-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.9rem; }
 .ed-reset { margin-inline-start: auto; }
 .sh-empty { padding: 0.4rem 0.2rem; font-size: 0.9rem; }
+
+/* "The speaker is" picker, at the far end of the toolbar */
+.speaker-pick { margin-inline-start: auto; display: inline-flex; align-items: center; gap: 0.45rem; }
+.speaker-pick span { white-space: nowrap; }
+.speaker-search { width: 16rem; max-width: 100%; }
+.speaker-search.chosen { border-color: var(--accent); font-weight: 600; }
+
+/* Who Karnak reacts for */
+.reactor-pick { margin-top: 0.6rem; }
+.reactor-pick summary { cursor: pointer; color: var(--accent); font-size: 1.05rem; font-weight: 600; }
+.reactor-group { border: 1px solid var(--line); border-radius: var(--radius); margin: 0.5rem 0; padding: 0.4rem 0.7rem; }
+.reactor-group legend { font-size: 0.82rem; color: var(--muted); padding: 0 0.3rem; }
+.reactor-opt { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0.2rem 0.9rem 0.2rem 0; font-size: 0.86rem; cursor: pointer; }
+.reactor-opt.on { font-weight: 600; }
+.reactor-opt input:disabled + * , .reactor-opt:has(input:disabled) { opacity: 0.55; cursor: default; }
+button.ghost.small { padding: 0.15rem 0.55rem; font-size: 0.8rem; margin-inline-start: 0.4rem; }
+.guess-badge { display: inline-block; margin-inline-start: 0.4rem; padding: 0 0.4rem; border-radius: 999px;
+  border: 1px dashed var(--line); color: var(--muted); font-size: 0.72rem; }
+
+/* Context check: bigger reading text; a moved word's line in blue. */
+.cx .cx-text { font-size: 1.12rem; line-height: 1.85; }
+.cx .cx-verdict { font-size: 0.9rem; }
+.cx button.tick { font-size: 0.84rem; padding: 0.18rem 0.65rem; }
+.cx .cx-select { font-size: 0.84rem; padding: 0.18rem 0.35rem; }
+.cx-copy.moved { border-color: #93c5fd; background: #eff6ff; }
+.cx-moved { display: inline-flex; align-items: center; gap: 0.2rem; font-size: 0.82rem; font-weight: 600;
+  color: #1e40af; background: #dbeafe; border: 1px solid #93c5fd; border-radius: 999px; padding: 0.1rem 0.5rem; }
+.cx-copy .cx-part { margin: 0.45rem 0 0; }

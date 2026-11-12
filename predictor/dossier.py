@@ -521,6 +521,24 @@ def _ar_norm(text: str) -> str:
     return normalize(text)
 
 
+# --------------------------------------------------------------------------- #
+# World leaders (G20, G8, BRICS+, the Security Council's permanent members and the
+# Board of Peace): their countries, profiles, personality types and news editions.
+# --------------------------------------------------------------------------- #
+from .world_leaders import COUNTRIES_EXTRA as _MORE_COUNTRIES, PEOPLE as _WORLD  # noqa: E402
+
+for _k, _v in _MORE_COUNTRIES.items():
+    COUNTRIES.setdefault(_k, _v)
+for _w in _WORLD:
+    PROFILES[_w["id"]] = _p(_w["country"], _w["cc"], _w["local"], f'"{_w["local"]}"', [],
+                            _w["background"], _w["style"], _w["memberships"],
+                            _w["partners"], _w["frictions"])
+    PERSONALITY[_w["id"]] = _w["ptype"]
+    _EDITIONS.setdefault(_w["cc"], _w["edition"])
+_SPEECH_WORDS.update({"fr": "discours", "de": "Rede", "it": "discorso", "ja": "演説",
+                      "pt-BR": "discurso", "es-419": "discurso", "id": "pidato", "ko": "연설",
+                      "hu": "beszéd", "vi": "phát biểu"})
+
 _EN_FORMS = {k: _form_re(v[2]) for k, v in COUNTRIES.items()}
 _AR_FORMS = {k: [_ar_norm(f) for f in v[3]] for k, v in COUNTRIES.items()}
 

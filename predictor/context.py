@@ -8,6 +8,9 @@ a country/organization, and applies decisions about them:
 
 - ignore: a marked word that doesn't carry its trait here is not counted;
 - count:  a word the scorer left out (someone else acts) is counted after all;
+- move:   a marked word belongs to another list in this sentence ("great" counted as
+          self-confidence rather than complexity); it leaves its lists and counts once
+          for the new one;
 - confirm: a person ticked that the word scorer was right about this word (no change
           to the score; it marks the example as checked for training);
 - add:    the sentence as a whole, or a part of it (`start`/`end`/`text`), shows a
@@ -89,7 +92,7 @@ def _index_of(sents: list[tuple[int, int]], pos: int) -> int:
 # --------------------------------------------------------------------------- #
 # The review list
 # --------------------------------------------------------------------------- #
-def review(text: str) -> dict:
+def review(text: str, exclude=()) -> dict:
     """Every sentence with a marked word or a named country/organization.
 
     Each marked word is one `hit` (a word on two lists is one hit with two labels);
@@ -116,7 +119,7 @@ def review(text: str) -> dict:
 
     for h in hits:
         item(_index_of(sents, h["start"]))["hits"].append(h)
-    for m in entities.find(text):
+    for m in entities.find(text, exclude):
         it = item(_index_of(sents, m["start"]))
         if not any(e["key"] == m["key"] for e in it["entities"]):
             it["entities"].append({**entities.info(m["key"]), "start": m["start"], "end": m["end"],
@@ -138,6 +141,8 @@ def _clean(decisions: dict | None) -> dict:
     return {"ignore": sorted({int(i) for i in d.get("ignore", [])}),
             "count": sorted({int(i) for i in d.get("count", [])}),
             "confirm": sorted({int(i) for i in d.get("confirm", [])}),
+            "move": [{"id": int(m["id"]), "label": m["label"]} for m in d.get("move", [])
+                     if m.get("label") in CODE_OF and m.get("id") is not None],
             "add": adds,
             "tones": [{"sentence": int(t["sentence"]), "entity": t["entity"], "tone": t["tone"],
                        "source": t.get("source", "person")} for t in d.get("tones", [])
@@ -160,6 +165,21 @@ def deltas(text: str, decisions: dict | None) -> dict[str, int]:
                 trait, role = l.split(":")
                 if role in _SKIPPED:
                     out[f"{trait}:high"] = out.get(f"{trait}:high", 0) + 1
+    for m in d["move"]:
+        h = hits.get(m["id"])
+        if not h or m["id"] in d["ignore"]:
+            continue
+        # Out of the lists the scorer put it on (if it was counted there), into the new one.
+        if m["id"] not in d["count"]:
+            for l in h["labels"]:
+                if l.split(":")[1] not in _SKIPPED:
+                    out[l] = out.get(l, 0) - 1
+        else:
+            for l in h["labels"]:
+                trait, role = l.split(":")
+                if role in _SKIPPED:
+                    out[f"{trait}:high"] = out.get(f"{trait}:high", 0) - 1
+        out[m["label"]] = out.get(m["label"], 0) + 1
     for a in d["add"]:
         out[a["label"]] = out.get(a["label"], 0) + 1
     return out
@@ -177,7 +197,7 @@ def rescore(text: str, decisions: dict | None, norm: dict | None = None) -> dict
     result = {**result, "lta": raw_lta(text, decisions)}
     band_lta(result["lta"], norm)
     d = _clean(decisions)
-    result["context"] = {"ignored": len(d["ignore"]), "counted": len(d["count"]),
+    result["context"] = {"ignored": len(d["ignore"]), "counted": len(d["count"]), "moved": len(d["move"]),
                          "added": len(d["add"]), "toned": len(d["tones"]),
                          "confirmed": len(d["confirm"]),
                          "parts": sum(1 for a in d["add"] if "start" in a)}
@@ -211,11 +231,14 @@ several sides; CC- = black-and-white certainty; TASK = focus on problems and goa
 REL = focus on people and relationships; DIS = distrust or suspicion of others; \
 IGB = us-versus-them, national pride.
    Only add a code the sentence really shows; most sentences need none.
-3. "tone": for each name listed under "names", the speaker's attitude toward it in \
+3. "move": a marked word that does carry a trait here, but a different one than \
+marked, because of the rest of the sentence. Example: "great" marked CC- in "we made \
+America great" is boasting: move it to "SC+". Give the word and the new code.
+4. "tone": for each name listed under "names", the speaker's attitude toward it in \
 this sentence: "pos", "neg" or "neu".
 
-List only sentences where you drop or add something, or that have names. Respond \
-ONLY with JSON: {"s": [{"i": 3, "drop": ["shape"], "add": ["SC+"], "tone": {"UN": "neg"}}]}"""
+List only sentences where you drop, move or add something, or that have names. Respond \
+ONLY with JSON: {"s": [{"i": 3, "drop": ["shape"], "move": {"great": "SC+"}, "add": ["SC+"], "tone": {"UN": "neg"}}]}"""
 
 _TONE_CODE = {"pos": "positive", "neg": "negative", "neu": "neutral",
               "positive": "positive", "negative": "negative", "neutral": "neutral"}
@@ -240,7 +263,7 @@ def _norm_word(w: str) -> str:
 def _apply_answer(group: list[dict], answer: dict) -> dict:
     """Turn the AI's JSON into checked decisions for this group of sentences."""
     by_i = {it["i"]: it for it in group}
-    out = {"ignore": [], "add": [], "tones": []}
+    out = {"ignore": [], "add": [], "tones": [], "move": []}
     rows = answer.get("s") if isinstance(answer, dict) else None
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
@@ -252,10 +275,16 @@ def _apply_answer(group: list[dict], answer: dict) -> dict:
         if not it:
             continue
         drops = {_norm_word(str(w)) for w in (row.get("drop") or []) if isinstance(w, (str, int))}
+        moves = row.get("move") if isinstance(row.get("move"), dict) else {}
+        moves = {_norm_word(str(w)): LABEL_OF.get(str(c).strip().upper().replace(" ", "")) for w, c in moves.items()}
         kept_labels = set()
         for h in it["hits"]:
-            if h["counted"] and _norm_word(h["word"]) in drops:
+            w = _norm_word(h["word"])
+            if h["counted"] and w in drops:
                 out["ignore"].append(h["id"])
+            elif h["counted"] and moves.get(w) and moves[w] not in h["labels"]:
+                out["move"].append({"id": h["id"], "label": moves[w]})
+                kept_labels.add(moves[w])
             elif h["counted"]:
                 kept_labels.update(h["labels"])
         for code in row.get("add") or []:
@@ -316,6 +345,8 @@ def reuse(it: dict, rec: dict) -> dict:
             out["count"].append(h["id"])
         if w.get("confirmed"):
             out["confirm"].append(h["id"])
+        if w.get("moved_to") in CODE_OF:
+            out.setdefault("move", []).append({"id": h["id"], "label": w["moved_to"]})
     for label in rec.get("added", []):
         if label in CODE_OF:
             out["add"].append({"sentence": it["i"], "label": label})
@@ -358,14 +389,18 @@ def similar_examples(group: list[dict], labels: list[dict], k: int = EXAMPLES_PE
 def _example_line(rec: dict) -> str:
     text = " ".join(rec.get("text", "").split())[:300]
     bits = []
-    dropped = [w["word"] for w in rec.get("words", [])
-               if not w.get("counted", True) and any(l.split(":")[1] not in _SKIPPED for l in w.get("labels", []))]
+    dropped = [w["word"] for w in rec.get("words", []) if not w.get("moved_to")
+               and not w.get("counted", True) and any(l.split(":")[1] not in _SKIPPED for l in w.get("labels", []))]
+    moved = [f"{w['word']} is {CODE_OF[w['moved_to']]}, not {'/'.join(CODE_OF[l] for l in w.get('labels', []) if l in CODE_OF)}"
+             for w in rec.get("words", []) if w.get("moved_to") in CODE_OF]
     right = [f"{w['word']}={'/'.join(CODE_OF[l] for l in w.get('labels', []) if l in CODE_OF)}"
              for w in rec.get("words", []) if w.get("confirmed") and w.get("counted", True)]
     if dropped:
         bits.append("drop: " + ", ".join(dropped))
     if right:
         bits.append("correct as marked: " + ", ".join(right))
+    if moved:
+        bits.append("move: " + ", ".join(moved))
     if rec.get("added"):
         bits.append("add: " + ", ".join(CODE_OF[l] for l in rec["added"] if l in CODE_OF))
     for part in rec.get("parts", []):
@@ -389,17 +424,17 @@ _JOBS: dict[str, dict] = {}
 _JOBS_LOCK = threading.Lock()
 
 
-def start_ai(text: str, labels: list[dict] | None = None) -> str:
+def start_ai(text: str, labels: list[dict] | None = None, exclude=()) -> str:
     """Start the context check in the background; returns a job id to poll.
 
     `labels` are the saved examples: a sentence saved before gets its saved decisions
     straight away (no AI needed); for the others Karnak is shown the most similar
     saved sentences with each group.
     """
-    items = review(text)["sentences"]
+    items = review(text, exclude)["sentences"]
     groups = [items[i:i + GROUP] for i in range(0, len(items), GROUP)]
     job = {"id": uuid.uuid4().hex[:12], "status": "running", "done": 0, "total": len(groups),
-           "decisions": {"ignore": [], "count": [], "confirm": [], "add": [], "tones": []},
+           "decisions": {"ignore": [], "count": [], "confirm": [], "move": [], "add": [], "tones": []},
            "reviewed": [], "reused": [], "examples": 0, "error": "",
            "started": time.time(), "cancel": False}
     with _JOBS_LOCK:
@@ -412,7 +447,8 @@ def start_ai(text: str, labels: list[dict] | None = None) -> str:
 
 
 def _run(job: dict, groups: list[list[dict]], labels: list[dict]) -> None:
-    from .llm import chat_json
+    from .llm import chat_json, begin_job, Stopped
+    begin_job()
     by_text = {" ".join(r.get("text", "").split()): r for r in labels}
     failures = 0
     for group in groups:
@@ -425,7 +461,7 @@ def _run(job: dict, groups: list[list[dict]], labels: list[dict]) -> None:
             rec = saved_for(it, by_text)
             if rec:
                 for k, v in reuse(it, rec).items():
-                    job["decisions"][k] += v
+                    job["decisions"].setdefault(k, []).extend(v)
                 job["reused"].append(it["i"])
                 job["reviewed"].append(it["i"])
             else:
@@ -439,8 +475,11 @@ def _run(job: dict, groups: list[list[dict]], labels: list[dict]) -> None:
                                       temperature=0.1)
                 got = _apply_answer(fresh, answer)
                 for k in got:
-                    job["decisions"][k] += got[k]
+                    job["decisions"].setdefault(k, []).extend(got[k])
                 job["reviewed"] += [it["i"] for it in fresh]
+            except Stopped:
+                job["status"] = "cancelled"
+                return
             except Exception as exc:  # one bad answer shouldn't stop the rest
                 failures += 1
                 job["error"] = f"{type(exc).__name__}: {exc}"[:300]
@@ -456,6 +495,17 @@ def job_status(job_id: str) -> dict | None:
     if not job:
         return None
     return {k: v for k, v in job.items() if k != "cancel"}
+
+
+def cancel_all() -> int:
+    """Cancel every running context check (Stop AI)."""
+    n = 0
+    for job in _JOBS.values():
+        if job.get("status") == "running":
+            job["cancel"] = True
+            job["status"] = "cancelled"
+            n += 1
+    return n
 
 
 def cancel(job_id: str) -> bool:
@@ -479,7 +529,9 @@ def label_records(text: str, decisions: dict, source: str) -> list[dict]:
                "words": [{"word": h["word"], "labels": h["labels"],
                           "counted": (h["counted"] and h["id"] not in d["ignore"])
                           or (h["id"] in d["count"] and h["id"] not in d["ignore"]),
-                          "confirmed": h["id"] in d["confirm"]}
+                          "confirmed": h["id"] in d["confirm"],
+                          "moved_to": next((m["label"] for m in d["move"] if m["id"] == h["id"]
+                                            and h["id"] not in d["ignore"]), None)}
                          for h in it["hits"]],
                "added": [a["label"] for a in d["add"] if a["sentence"] == it["i"] and "start" not in a],
                "parts": [{"text": a["text"], "label": a["label"]} for a in d["add"]

@@ -15,10 +15,13 @@ export interface Bundle {
   howToRead: string; howToReadBody: string;
   traitsHeading: string; higher: string; lower: string;
   opCodeHeading: string; opCodeIntro: string;
+  useHeading: string; useSections: { h: string; items: string[] }[];
+  guidePdf: string; guidePdfNote: string; guidePdfEn: string; guidePdfAr: string;
   trySample: string; chooseOne: string; placeholder: string;
   uploadBtn: string; uploadingBtn: string; uploadHint: string; uploadedFrom: string;
   uploadErrors: Record<string, string>;
   analyze: string; analyzing: string; runNote: string; aiOffNote: string;
+  stopAi: string; stoppingAi: string; stopGuide: string; stopDone: string;
   wordPanelTag: string; wordPanelNote: string;
   personalityHeading: string; politicsHeading: string;
   aiPanelTag: string; aiReading: string; overallStyle: string; whyScore: string;
@@ -81,6 +84,9 @@ export interface Bundle {
   bands: Record<string, string>;
   traitNames: Record<string, string>;
   cx: Record<string, string>; cxCodes: Record<string, string>;
+  speakerPick: string; speakerNone: string; speakerPickTip: string; speakerHome: string; speakerSearch: string;
+  toTop: string; toBottom: string;
+  reactPick: string; reactPickNote: string; reactReset: string; reactSplit: string; reactGuess: string; reactGuessTip: string;
   shGroups: Record<string, string>; shEmpty: Record<string, string>; fldGroup: string; groupGuess: string;
   edBtn: string; edHeading: string; edIntro: string; edSave: string; edReset: string; edEditedNote: string;
   edOnePerLine: string; edCountryFirst: string; edPersonality: string;
@@ -106,6 +112,41 @@ const en: Bundle = {
   higher: 'Higher:', lower: 'Lower:',
   opCodeHeading: 'The "operational code" indices (how they view politics & strategy)',
   opCodeIntro: 'A second, separate method describing how the leader sees the political world and how they pursue goals. Each line below explains its number.',
+  useHeading: 'How to use Cortex',
+  useSections: [
+    { h: '1. Analyse a speech (the Analyze page)', items: [
+      'Put a speech in the box: paste it with "Paste", upload a PDF, Word or text file with "Upload a file", or pick a sample speech. Check the text before analysing.',
+      '"The speaker is:" type part of a name and choose it from the suggestions. Their own country is then not listed among the places the speech talks about.',
+      '"AI reactions from": click it and tick up to 12 stakeholders for Karnak to react as. Everyone else gets a quick keyword guess. Your choice is remembered on this computer.',
+      'Press "Analyze speech". The word scorer answers in seconds; the AI then checks the context, scores the traits and predicts reactions. This can take up to an hour on a laptop. You can change pages or refresh meanwhile.',
+      '"Clear" empties the box and the results.',
+    ] },
+    { h: '2. Read and correct the results', items: [
+      'Your text: counted words are highlighted in their trait colour; hover over one to see why it counted. Names of countries and organisations are underlined.',
+      'Summary, Word scorer and AI scorer: each trait as High, Moderate or Low compared with other leaders, with confidence and the words or reasons behind it.',
+      'Context check: click its title to open or close it (it folds away when Karnak finishes). Click a sentence number to open it. Under each line: ✓ Correct keeps the word, ✗ Not here drops it, "↪ Belongs to…" moves it to another trait. Select words with the mouse to add just that part to a trait.',
+      '"Save these decisions as examples for Karnak" stores your corrections; Karnak follows them next time, and git shares them with other computers.',
+      'Countries, organisations and places named: how often each is mentioned and the speaker\'s attitude towards it; you can save these statements to the speaker\'s file.',
+      'Stakeholder reactions: Support, Oppose, Mixed or Neutral with reasons and likely responses. Filter by stance; "keyword guess" marks people not chosen for the AI.',
+      '"See full analysis (PDF)" asks for your password, then opens a printable report.',
+    ] },
+    { h: '3. If something goes wrong', items: [
+      '"■ Stop AI" at the top of the results stops Karnak at once. Use it when an error appears or nothing moves for more than half an hour, then press "Analyze speech" again.',
+      '"AI engine off" means Karnak is not running: start it in its own terminal window.',
+      '"Try AI again" re-runs stakeholder reactions when the AI failed.',
+    ] },
+    { h: '4. The Stakeholder panel page', items: [
+      'Five groups: international organisations, heads of state and government, non-state armed groups, NGOs, and other actors.',
+      'Click a name to open the profile: background, leadership style, partners and rivals (click a country to see what they said about it), news and speeches.',
+      '"✎ Edit profile" changes any field; "Restore the original" undoes your edits. "Add a speech" stores one of their speeches to build their word profile.',
+      '"Add stakeholder" adds a new person or organisation; × removes one (built-in ones can be restored at the bottom).',
+    ] },
+    { h: '5. Language and account', items: [
+      '"العربية" / "English" (top right) switches the interface, the profiles and the AI\'s answers. "Sign out" ends your session.',
+    ] },
+  ],
+  guidePdf: 'Full handbook (PDF):', guidePdfNote: 'every button, the seven LTA traits in detail, how the scores are calculated, and troubleshooting.',
+  guidePdfEn: 'Download in English', guidePdfAr: 'تنزيل بالعربية',
   trySample: 'Try a sample speech:', chooseOne: '— choose one —',
   placeholder: "Paste a political leader's speech or interview here…",
   uploadBtn: 'Upload a file', uploadingBtn: 'Reading file…',
@@ -120,6 +161,9 @@ const en: Bundle = {
     'pdf-no-text': 'That PDF has no readable text, so it\'s probably a scan. Please paste the text instead.',
   },
   analyze: 'Analyze speech', analyzing: 'Analyzing…',
+  stopAi: 'Stop AI', stoppingAi: 'Stopping…',
+  stopGuide: 'Use Stop AI when something goes wrong: the AI shows an error, or nothing has moved for a long time (more than half an hour on one step). It stops Karnak at once, so it is free again. Then press Analyze speech to start over. The Word scorer results stay.',
+  stopDone: 'The AI was stopped. Press Analyze speech to start again.',
   runNote: 'Runs both the Word scorer and the AI scorer.',
   aiOffNote: ' (AI scorer is off on the server)',
   wordScorerTitle: 'Word scorer', wordPanelTag: 'counts word patterns',
@@ -283,6 +327,8 @@ const en: Bundle = {
   errGeneric: 'Something went wrong with the request.',
   cx: {
     heading: 'Context check',
+    move: 'Belongs to…', moveTip: 'Because of the rest of the sentence, this word shows a different trait: count it there instead.',
+    moveUndo: 'Undo: back to the first reading',
     wholeOffTip: 'No whole-sentence choice here: only the word and part choices count.',
     wholeOn: '+ Whole-sentence choice', wholeOnTip: 'Bring back the whole-sentence option for this sentence.',
     kind_country: 'Country', kind_organization: 'Organization', kind_continent: 'Continent', kind_region: 'Region',
@@ -290,7 +336,7 @@ const en: Bundle = {
     fromSaved: 'Your saved decision',
     memory: 'Using your saved examples: {reused} sentences you decided before were filled in again, and Karnak was shown {examples} similar saved sentences to follow.',
     srcsaved: 'from your saved decision',
-    howTo: 'A sentence with several marked words is shown once per word. For each, tick ✓ if the first reading is right, or ✗ if the word means something else here. To add part of a sentence to a category, select those words with the mouse.',
+    howTo: 'A sentence with several marked words is shown once per word. On each line: ✓ if the first reading is right, ✗ if the word means nothing here, or "Belongs to…" if the rest of the sentence makes it a different trait. To add part of a sentence to a category, select those words with the mouse.',
     initial: 'First reading:', notCounted: 'left out: someone else acts, or it is denied',
     right: 'Correct', wrong: 'Not here', wrongSkip: 'Count it',
     rightTip: 'Yes: this word does show this trait here.', wrongTip: 'No: leave this word out in this sentence.',
@@ -305,6 +351,8 @@ const en: Bundle = {
     aiOff: 'The AI is off, so review the sentences by hand: click a word to stop counting it, or add the trait the whole sentence shows.',
     aiCancelled: 'Context check stopped. You can review the sentences by hand.',
     aiStart: 'Ask Karnak to check the context', aiAgain: 'Ask Karnak again', aiStop: 'Stop',
+    collapse: 'Click to fold this section away', expand: '(click to open)', openAll: 'Open all sentences', closeAll: 'Close all sentences',
+    wordsMarked: 'marked words', namesMarked: 'names',
     filterAll: 'All', filterChanged: 'Changed', filterNames: 'Naming a country or organization',
     wordOn: 'Counted. Click to leave it out in this sentence.',
     wordOff: 'Left out. Click to count it.',
@@ -312,7 +360,7 @@ const en: Bundle = {
     ignoreSentence: 'Not relevant: leave out all its words', keepSentence: 'Count its words again',
     addTrait: '+ Whole sentence shows…', fromAi: 'Karnak', toneFor: 'Attitude to {name}:',
     more: 'Show {n} more',
-    applied: 'Context check applied: {ignored} words left out, {counted} counted after all, {added} traits added from whole sentences.',
+    applied: 'Context check applied: {ignored} words left out, {moved} moved to another trait, {counted} counted after all, {added} traits added from sentences or parts.',
     saveLabels: 'Save these decisions as examples for Karnak',
     savedLabels: 'Saved {n} sentences ({total} in total). From now on the context check reuses them, and shows Karnak the most similar ones before it judges new sentences.',
     none: 'No marked sentences in this text.',
@@ -332,9 +380,17 @@ const en: Bundle = {
     ezIntro: 'Every sentence on file that names {name}, and the attitude in it.',
     ezSpeech: 'Speech', ezSaid: 'What was said', ezTone: 'Attitude',
   },
-  shGroups: { organization: 'Heads of international organisations', state: 'Heads of state', government: 'Heads of government', other: 'Other actors' },
+  speakerPick: 'The speaker is:', speakerNone: 'Not set', speakerSearch: 'Type a name to search…', toTop: 'Go to the top', toBottom: 'Go to the bottom',
+  speakerPickTip: "Choose who gave this speech before analysing. Their own country is then left out of 'Countries, organizations and places named'.",
+  speakerHome: "Left out as the speaker's own country: {name}.",
+  reactPick: 'AI reactions from: {n} of {max} chosen (click to change)',
+  reactPickNote: 'Tick up to {max} stakeholders for Karnak to react as. Fewer people means faster, better answers. Everyone else gets a quick keyword guess. Your choice is remembered on this computer.',
+  reactReset: 'Back to the default', reactSplit: 'Karnak reacted for {ai} chosen stakeholders; the other {guess} are quick keyword guesses, shown below them.',
+  reactGuess: 'keyword guess', reactGuessTip: 'Not chosen for the AI: a quick guess from the words in the text. Tick this person under "AI reactions from" to get a real reaction.',
+  shGroups: { organization: 'Heads of international organisations', state: 'Heads of state and government',
+    nonstate: 'Non-state armed groups', ngo: 'Non-governmental organisations (NGOs)', other: 'Other actors' },
   shEmpty: { organization: 'No one yet. Add, for example, the UN Secretary-General, the Arab League Secretary-General or the head of the IMF.',
-             state: 'No one yet.', government: 'No one yet.', other: 'No one yet.' },
+             state: 'No one yet.', nonstate: 'No one yet.', ngo: 'No one yet.', other: 'No one yet.' },
   fldGroup: 'Group', groupGuess: 'Work it out from the title',
   edBtn: 'Edit profile', edHeading: 'Edit profile',
   edIntro: 'Change anything here. The stakeholder reactions use the new details from the next analysis on. The original stays saved, so you can restore it.',
@@ -363,6 +419,41 @@ const ar: Bundle = {
   higher: 'أعلى:', lower: 'أدنى:',
   opCodeHeading: 'مؤشّرات «الشيفرة التشغيلية» (كيف يرى السياسة والاستراتيجية)',
   opCodeIntro: 'طريقة ثانية مستقلّة تصف كيف يرى القائد العالم السياسي وكيف يسعى لتحقيق أهدافه. كلّ سطر أدناه يشرح معنى رقمه.',
+  useHeading: 'طريقة استخدام كورتكس',
+  useSections: [
+    { h: '1. تحليل خطاب (صفحة التحليل)', items: [
+      'ضع الخطاب في المربع: الصقه بزر "لصق"، أو ارفع ملف PDF أو Word أو نصًا بزر "رفع ملف"، أو اختر خطابًا نموذجيًا. راجع النص قبل التحليل.',
+      '"المتحدث هو:" اكتب جزءًا من الاسم واختره من الاقتراحات. عندئذٍ لا تُدرج بلده ضمن الأماكن التي يتحدث عنها الخطاب.',
+      '"ردود فعل الذكاء الاصطناعي من": اضغطه واختر حتى 12 من أصحاب المصلحة ليتقمّص كرنك ردود أفعالهم، ويحصل الباقون على تقدير سريع من الكلمات. يُحفظ اختيارك على هذا الجهاز.',
+      'اضغط "حلّل الخطاب". تجيب أداة الكلمات خلال ثوانٍ، ثم يفحص الذكاء الاصطناعي السياق ويقيّم السمات ويتوقع ردود الأفعال. قد يستغرق ذلك حتى ساعة على جهاز محمول، ويمكنك تغيير الصفحة أو تحديثها أثناء ذلك.',
+      '"مسح" يفرغ المربع والنتائج.',
+    ] },
+    { h: '2. قراءة النتائج وتصحيحها', items: [
+      'نصك: تُميَّز الكلمات المحسوبة بلون سمتها؛ مرّر المؤشر فوق إحداها لترى سبب احتسابها. وتُسطَّر أسماء الدول والمنظمات.',
+      'الملخص وأداة الكلمات وأداة الذكاء الاصطناعي: كل سمة مرتفعة أو متوسطة أو منخفضة مقارنةً بقادة آخرين، مع درجة الثقة والكلمات أو الأسباب التي تقوم عليها.',
+      'فحص السياق: اضغط عنوانه لفتحه أو إغلاقه (يُطوى حين ينتهي كرنك). اضغط رقم الجملة لفتحها. تحت كل سطر: "✓ صحيح" يُبقي الكلمة، و"✗ ليس هنا" يستبعدها، و"↪ تنتمي إلى…" ينقلها إلى سمة أخرى. حدّد كلمات بالفأرة لإضافة ذلك الجزء وحده إلى سمة.',
+      '"احفظ هذه القرارات أمثلةً لكرنك" يخزّن تصحيحاتك؛ يتبعها كرنك في المرة التالية، وتتشاركها الأجهزة الأخرى عبر git.',
+      'الدول والمنظمات والأماكن المذكورة: عدد مرات ذكر كلٍّ منها وموقف المتحدث منها؛ ويمكنك حفظ هذه المواقف في ملف المتحدث.',
+      'ردود فعل أصحاب المصلحة: تأييد أو معارضة أو مختلط أو محايد مع الأسباب والردود المرجحة. صفِّ حسب الموقف؛ ويشير "تقدير من الكلمات" إلى من لم يُختاروا للذكاء الاصطناعي.',
+      '"عرض التحليل الكامل (PDF)" يطلب كلمة المرور ثم يفتح تقريرًا قابلًا للطباعة.',
+    ] },
+    { h: '3. عند حدوث مشكلة', items: [
+      '"■ إيقاف الذكاء الاصطناعي" أعلى النتائج يوقف كرنك فورًا. استخدمه عند ظهور خطأ أو عدم تقدم أي شيء لأكثر من نصف ساعة، ثم اضغط "حلّل الخطاب" مجددًا.',
+      '"الذكاء الاصطناعي متوقف" يعني أن كرنك لا يعمل: شغّله في نافذة طرفية خاصة به.',
+      '"أعد المحاولة بالذكاء الاصطناعي" يعيد ردود فعل أصحاب المصلحة حين يفشل الذكاء الاصطناعي.',
+    ] },
+    { h: '4. صفحة لوحة أصحاب المصلحة', items: [
+      'خمس فئات: المنظمات الدولية، ورؤساء الدول والحكومات، والجماعات المسلحة من غير الدول، والمنظمات غير الحكومية، وفاعلون آخرون.',
+      'اضغط اسمًا لفتح الملف: الخلفية، وأسلوب القيادة، والشركاء والخصوم (اضغط دولة لترى ما قاله عنها)، والأخبار والخطابات.',
+      '"✎ تعديل الملف" يغيّر أي حقل، و"استعادة الأصل" يتراجع عن تعديلاتك. "إضافة خطاب" يخزّن أحد خطاباته لبناء ملف كلماته.',
+      '"إضافة صاحب مصلحة" يضيف شخصًا أو منظمة جديدة، وزر × يزيل أحدهم (ويمكن استعادة المدمجين من أسفل الصفحة).',
+    ] },
+    { h: '5. اللغة والحساب', items: [
+      '"العربية" / "English" (أعلى اليمين) يبدّل الواجهة والملفات وإجابات الذكاء الاصطناعي. و"تسجيل الخروج" ينهي جلستك.',
+    ] },
+  ],
+  guidePdf: 'الدليل الكامل (PDF):', guidePdfNote: 'كل زر، والسمات السبع بالتفصيل، وطريقة حساب النتائج، وحل المشكلات.',
+  guidePdfEn: 'Download in English', guidePdfAr: 'تنزيل بالعربية',
   trySample: 'جرّب خطابًا نموذجيًا:', chooseOne: '— اختر —',
   placeholder: 'الصق هنا خطاب أو مقابلة لأحد القادة السياسيين…',
   uploadBtn: 'رفع ملف', uploadingBtn: 'جارٍ قراءة الملف…',
@@ -377,6 +468,9 @@ const ar: Bundle = {
     'pdf-no-text': 'لا يحتوي ملف PDF على نص قابل للقراءة، وقد يكون نسخة ممسوحة ضوئيًا. يُرجى لصق النص بدلًا من ذلك.',
   },
   analyze: 'حلّل الخطاب', analyzing: 'جارٍ التحليل…',
+  stopAi: 'إيقاف الذكاء الاصطناعي', stoppingAi: 'جارٍ الإيقاف…',
+  stopGuide: 'استخدم زر الإيقاف عند حدوث مشكلة: ظهرت رسالة خطأ من الذكاء الاصطناعي، أو لم يتقدّم شيء منذ وقت طويل (أكثر من نصف ساعة في خطوة واحدة). يوقف كرنك فورًا فيصبح متاحًا من جديد. بعدها اضغط «حلّل الخطاب» للبدء من جديد. تبقى نتائج أداة الكلمات كما هي.',
+  stopDone: 'تم إيقاف الذكاء الاصطناعي. اضغط «حلّل الخطاب» للبدء من جديد.',
   runNote: 'يشغّل أداة الكلمات وأداة الذكاء الاصطناعي معًا.',
   aiOffNote: ' (أداة الذكاء الاصطناعي متوقّفة على الخادم)',
   wordScorerTitle: 'أداة تحليل الكلمات', wordPanelTag: 'تُحصي أنماط الكلمات',
@@ -540,6 +634,8 @@ const ar: Bundle = {
   errGeneric: 'حدث خطأ ما في الطلب.',
   cx: {
     heading: 'فحص السياق',
+    move: 'تنتمي إلى…', moveTip: 'بسبب بقية الجملة، تُظهر هذه الكلمة سمة أخرى: احسبها هناك بدلًا من ذلك.',
+    moveUndo: 'تراجع: العودة إلى القراءة الأولى',
     wholeOffTip: 'لا اختيار للجملة كلها هنا: تُحسب اختيارات الكلمات والأجزاء فقط.',
     wholeOn: '+ اختيار للجملة كلها', wholeOnTip: 'أعد خيار الجملة كلها لهذه الجملة.',
     kind_country: 'دولة', kind_organization: 'منظمة', kind_continent: 'قارة', kind_region: 'إقليم',
@@ -547,7 +643,7 @@ const ar: Bundle = {
     fromSaved: 'قرارك المحفوظ',
     memory: 'استُخدمت أمثلتك المحفوظة: أعيد ملء {reused} جملة قررتها من قبل، وعُرضت على كرنك {examples} جملة محفوظة مشابهة ليتبعها.',
     srcsaved: 'من قرارك المحفوظ',
-    howTo: 'الجملة التي فيها عدة كلمات معلَّمة تظهر مرة لكل كلمة. لكل منها، اختر ✓ إن كانت القراءة الأولى صحيحة، أو ✗ إن كانت الكلمة تعني شيئًا آخر هنا. لإضافة جزء من جملة إلى فئة، حدّد تلك الكلمات بالفأرة.',
+    howTo: 'الجملة التي فيها عدة كلمات معلَّمة تظهر مرة لكل كلمة. في كل سطر: ✓ إن كانت القراءة الأولى صحيحة، و✗ إن لم تعنِ الكلمة شيئًا هنا، أو "تنتمي إلى…" إن جعلتها بقية الجملة سمة أخرى. لإضافة جزء من جملة إلى فئة، حدّد تلك الكلمات بالفأرة.',
     initial: 'القراءة الأولى:', notCounted: 'مستبعدة: غير المتحدث هو الفاعل، أو الفعل منفي',
     right: 'صحيح', wrong: 'ليس هنا', wrongSkip: 'احسبها',
     rightTip: 'نعم: هذه الكلمة تُظهر هذه السمة هنا.', wrongTip: 'لا: استبعد هذه الكلمة في هذه الجملة.',
@@ -562,6 +658,8 @@ const ar: Bundle = {
     aiOff: 'الذكاء الاصطناعي متوقف، فراجع الجمل يدويًا: انقر كلمة لإيقاف عدّها، أو أضف السمة التي تُظهرها الجملة كلها.',
     aiCancelled: 'توقف فحص السياق. يمكنك مراجعة الجمل يدويًا.',
     aiStart: 'اطلب من كرنك فحص السياق', aiAgain: 'اطلب من كرنك مرة أخرى', aiStop: 'إيقاف',
+    collapse: 'اضغط لطيّ هذا القسم', expand: '(اضغط للفتح)', openAll: 'فتح كل الجمل', closeAll: 'إغلاق كل الجمل',
+    wordsMarked: 'كلمات مُعلَّمة', namesMarked: 'أسماء',
     filterAll: 'الكل', filterChanged: 'ما تغيّر', filterNames: 'ما يذكر دولة أو منظمة',
     wordOn: 'محسوبة. انقر لاستبعادها في هذه الجملة.',
     wordOff: 'مستبعدة. انقر لعدّها.',
@@ -569,7 +667,7 @@ const ar: Bundle = {
     ignoreSentence: 'غير ذات صلة: استبعد كل كلماتها', keepSentence: 'أعد عدّ كلماتها',
     addTrait: '+ الجملة كلها تُظهر…', fromAi: 'كرنك', toneFor: 'الموقف من {name}:',
     more: 'عرض {n} أخرى',
-    applied: 'طُبّق فحص السياق: استُبعدت {ignored} كلمة، وعُدّت {counted} كلمة، وأضيفت {added} سمة من جمل كاملة.',
+    applied: 'طُبّق فحص السياق: استُبعدت {ignored} كلمة، ونُقلت {moved} كلمة إلى سمة أخرى، وعُدّت {counted} كلمة، وأضيفت {added} سمة من جمل أو أجزاء.',
     saveLabels: 'احفظ هذه القرارات أمثلةً لكرنك',
     savedLabels: 'حُفظت {n} جملة (المجموع {total}). من الآن يعيد فحص السياق استخدامها، ويعرض على كرنك أشبهها قبل أن يحكم على جمل جديدة.',
     none: 'لا توجد جمل معلَّمة في هذا النص.',
@@ -589,9 +687,17 @@ const ar: Bundle = {
     ezIntro: 'كل جملة محفوظة تذكر {name}، والموقف فيها.',
     ezSpeech: 'الخطاب', ezSaid: 'ما قيل', ezTone: 'الموقف',
   },
-  shGroups: { organization: 'رؤساء المنظمات الدولية', state: 'رؤساء الدول', government: 'رؤساء الحكومات', other: 'فاعلون آخرون' },
+  speakerPick: 'المتحدث هو:', speakerNone: 'غير محدد', speakerSearch: 'اكتب اسمًا للبحث…', toTop: 'إلى أعلى الصفحة', toBottom: 'إلى أسفل الصفحة',
+  speakerPickTip: 'اختر صاحب الخطاب قبل التحليل. تُستبعد بلده عندئذٍ من "الدول والمنظمات والأماكن المذكورة".',
+  speakerHome: 'استُبعدت لأنها بلد المتحدث: {name}.',
+  reactPick: 'ردود فعل الذكاء الاصطناعي من: {n} من {max} (اضغط للتغيير)',
+  reactPickNote: 'اختر حتى {max} من أصحاب المصلحة ليتقمّص كرنك ردود أفعالهم. كلما قلّ العدد كانت الإجابات أسرع وأدق. ويحصل الباقون على تقدير سريع من الكلمات. يُحفظ اختيارك على هذا الجهاز.',
+  reactReset: 'العودة إلى الاختيار الافتراضي', reactSplit: 'قدّم كرنك ردود فعل {ai} من أصحاب المصلحة المختارين؛ أما الـ{guess} الآخرون فتقديرات سريعة من الكلمات، تظهر بعدهم.',
+  reactGuess: 'تقدير من الكلمات', reactGuessTip: 'لم يُختر للذكاء الاصطناعي: تقدير سريع من كلمات النص. اختره ضمن "ردود فعل الذكاء الاصطناعي من" للحصول على رد فعل حقيقي.',
+  shGroups: { organization: 'رؤساء المنظمات الدولية', state: 'رؤساء الدول والحكومات',
+    nonstate: 'جماعات مسلحة من غير الدول', ngo: 'منظمات غير حكومية', other: 'فاعلون آخرون' },
   shEmpty: { organization: 'لا أحد بعد. أضف مثلًا الأمين العام للأمم المتحدة أو الأمين العام لجامعة الدول العربية أو رئيس صندوق النقد الدولي.',
-             state: 'لا أحد بعد.', government: 'لا أحد بعد.', other: 'لا أحد بعد.' },
+             state: 'لا أحد بعد.', nonstate: 'لا أحد بعد.', ngo: 'لا أحد بعد.', other: 'لا أحد بعد.' },
   fldGroup: 'الفئة', groupGuess: 'تُحدَّد من المنصب',
   edBtn: 'تعديل الملف', edHeading: 'تعديل الملف',
   edIntro: 'غيّر ما تريد هنا. تستخدم ردود أصحاب المصلحة البيانات الجديدة بدءًا من التحليل التالي. تبقى النسخة الأصلية محفوظة، ويمكنك استعادتها.',

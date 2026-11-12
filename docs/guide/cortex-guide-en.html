@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<title>Cortex - User Guide and Method Handbook</title>
+<link rel="stylesheet" href="guide.css">
+</head>
+<body>
+
+<section class="cover">
+  <h1>CORTEX</h1>
+  <div class="ar">كورتكس</div>
+  <div class="rule"></div>
+  <p class="sub">User guide and method handbook</p>
+  <p class="muted">Leadership Trait Analysis, context checking and stakeholder reactions</p>
+  <p class="date">Egyptian Youth Diplomacy Program · Ministry of Youth and Sports · November 2026</p>
+</section>
+
+<section class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>What Cortex does</li>
+    <li>Quick start: your first analysis</li>
+    <li>The top bar and the three pages</li>
+    <li>The Analyze page, button by button</li>
+    <li>Reading the results</li>
+    <li>The context check</li>
+    <li>Countries, organisations and places named</li>
+    <li>Stakeholder reactions</li>
+    <li>The Stakeholders page and profiles</li>
+    <li>Leadership Trait Analysis (LTA) in detail</li>
+    <li>The seven traits</li>
+    <li>From traits to leadership style</li>
+    <li>The two scorers: words and AI</li>
+    <li>Karnak, the local AI</li>
+    <li>Good practice and limits</li>
+    <li>Troubleshooting</li>
+  </ol>
+</section>
+
+<h2>1. What Cortex does</h2>
+<p>Cortex reads a political speech, interview or statement and estimates the speaker's leadership personality: how they
+think, decide and deal with others. It then predicts how other political actors are likely to react to what was said.</p>
+<p>It is built on <strong>Leadership Trait Analysis (LTA)</strong>, a method developed by the political psychologist
+Margaret G. Hermann to profile leaders "at a distance", from their own words, when they cannot be interviewed or tested.
+Cortex adds three things on top of the classic method:</p>
+<ul>
+  <li><strong>Two scorers.</strong> A transparent <em>word scorer</em> that counts the word patterns LTA is built on, and an
+    <em>AI scorer</em> that reads the meaning of the whole speech.</li>
+  <li><strong>A context check.</strong> Words mean different things in different sentences. You (or the AI) can confirm,
+    reject or move each counted word, and the scores update at once.</li>
+  <li><strong>A stakeholder panel.</strong> More than 70 world leaders, international organisations, armed groups and NGOs,
+    each with a profile, whose likely reactions to the speech Cortex predicts.</li>
+</ul>
+<div class="box">Everything runs on your own computer. The AI (Karnak-6B) is local: speeches are never sent to an outside AI service.</div>
+
+<h2>2. Quick start: your first analysis</h2>
+<ol>
+  <li>Open Cortex in your browser and sign in.</li>
+  <li>Go to <span class="btn">Analyze</span>.</li>
+  <li>Put a speech in the text box: paste it, upload a PDF, Word or text file, or pick a sample speech.</li>
+  <li>Type the speaker's name in <span class="btn">The speaker is:</span> and pick them from the suggestions. Their own country
+    is then not listed among the countries the speech talks about.</li>
+  <li>Optional: open <span class="btn">AI reactions from</span> and tick up to 12 stakeholders whose reactions you want the AI to predict.</li>
+  <li>Press <span class="btn">Analyze speech</span>.</li>
+  <li>The word scorer results appear within seconds. The AI then checks the context of each sentence, scores the traits and
+    predicts the reactions. On an ordinary laptop this takes from several minutes to around an hour for a long speech.
+    You can keep working, change pages, or refresh: the analysis carries on.</li>
+  <li>Review the context check, correct anything the AI got wrong, and save your decisions so the AI learns from them next time.</li>
+  <li>Press <span class="btn">See full analysis (PDF)</span> to print or save the report.</li>
+</ol>
+
+<h2>3. The top bar and the three pages</h2>
+<table>
+  <tr><th>Item</th><th>What it does</th></tr>
+  <tr><td>CORTEX (top left)</td><td>The name of the system.</td></tr>
+  <tr><td>Ministry and program logos (centre)</td><td>The Ministry of Youth and Sports and the Egyptian Youth Diplomacy Program.</td></tr>
+  <tr><td><span class="btn">العربية</span> / <span class="btn">English</span></td><td>Switches the whole interface, the profiles and the AI's written answers between Arabic and English. Results already on screen are re-run in the new language.</td></tr>
+  <tr><td><span class="btn">Sign out</span></td><td>Ends your session.</td></tr>
+  <tr><td><span class="btn">Analyze</span></td><td>Analyse a speech (sections 4 to 8).</td></tr>
+  <tr><td><span class="btn">Stakeholder panel</span></td><td>The panel of leaders and organisations, their profiles, and editing (section 9).</td></tr>
+  <tr><td><span class="btn">Guide</span></td><td>How the system works, the seven traits, and this handbook as a PDF.</td></tr>
+</table>
+
+<h2>4. The Analyze page, button by button</h2>
+<h3>The text box and its toolbar</h3>
+<table>
+  <tr><th>Button</th><th>What it does</th></tr>
+  <tr><td>Try a sample speech</td><td>Loads a sample speech, useful to see how results look.</td></tr>
+  <tr><td><span class="btn">Paste</span></td><td>Pastes the text from your clipboard into the box.</td></tr>
+  <tr><td><span class="btn">Upload a file</span></td><td>Reads a PDF, Word (.docx) or text (.txt) file, up to 50 MB. The text appears in the box so you can check it first. Scanned PDFs (images) cannot be read; paste their text instead.</td></tr>
+  <tr><td><span class="btn">Clear</span></td><td>Empties the box and the results, and stops any AI work for that text.</td></tr>
+  <tr><td>The speaker is: (search box)</td><td>Type part of a name; matching stakeholders appear as suggestions. When a name is chosen the box turns bold. The speaker's own country (for a group, the group itself) is left out of the "places named" list.</td></tr>
+  <tr><td>AI reactions from: N of 12 chosen</td><td>Click to open a list of every stakeholder, by group. Tick up to 12 for the AI to react as. Everyone else gets a quick keyword guess. <span class="btn">Back to the default</span> returns to the original Middle East panel. Your choice is remembered on that computer.</td></tr>
+</table>
+<p>If a document contains several speeches (for example a press conference), Cortex finds each speaker. A table lets you pick
+one speaker's part and compare the speakers' word scores side by side.</p>
+
+<h3>Running and stopping</h3>
+<table>
+  <tr><th>Button</th><th>What it does</th></tr>
+  <tr><td><span class="btn">Analyze speech</span></td><td>Runs the word scorer at once, then the AI steps in order: context check first, then AI trait scores and stakeholder reactions.</td></tr>
+  <tr><td><span class="btn">■ Stop AI</span> (top of the results)</td><td>Use it when something goes wrong: an error appears, or nothing has moved for more than half an hour on one step. It stops Karnak immediately so it is free again. Then press Analyze speech to start over. Word scorer results are kept.</td></tr>
+  <tr><td><span class="btn">See full analysis (PDF)</span></td><td>Asks for your password again, then opens a printable report of the whole analysis. Choose "Save as PDF" in the print window to keep a file.</td></tr>
+</table>
+
+<h2>5. Reading the results</h2>
+<h3>Your text</h3>
+<p>The left panel shows the speech with every counted word highlighted in its trait's colour. Hover over a highlighted word
+to see which list it belongs to. Names of countries, organisations and places are underlined.</p>
+<h3>The summary</h3>
+<p>The right panel gives the overall leadership style and, for each of the seven traits, the word scorer's band and the AI's
+score, with confidence and the text length.</p>
+<h3>Word scorer</h3>
+<p>For each trait: the band (High, Moderate, Low), the figure behind it (the share of the trait's words, or the split between its two lists), the
+confidence, and the words that were counted, most frequent first. Words the grammar shows are not the speaker's own action
+("they built", "we cannot control") are listed as skipped.</p>
+<h3>AI scorer</h3>
+<p>For each trait a score from 0 to 100 (about 50 is average for a world leader), a band, and a one-line reason. The AI also writes
+an overall leadership style. Badges show whether the result came from the AI or from a fallback.</p>
+<div class="box">High, Moderate and Low are comparisons with other leaders. They do not mean good or bad, only stronger or weaker than average on that trait.</div>
+
+<h2>6. The context check</h2>
+<p>The word scorer counts words, but a word's meaning depends on its sentence: "great" in "a great nation" boasts (self-confidence),
+while "the First Lady is in great shape" says nothing about leadership. The context check lets you, or the AI, decide.</p>
+<h3>Opening and closing</h3>
+<ul>
+  <li>Click the section title to open or close it. When Karnak finishes its check the section closes itself; click the title to see it again.</li>
+  <li>Every sentence is listed by number with a short preview. Click the number to open the sentence and its words. <span class="btn">Open all sentences</span> and <span class="btn">Close all sentences</span> do it for the whole page.</li>
+  <li>Filters: <span class="btn">All</span>, <span class="btn">Changed</span> (sentences with a decision) and <span class="btn">Naming a country or organization</span>.</li>
+</ul>
+<h3>Deciding about each word</h3>
+<p>Each sentence is shown once for every highlighted word, with the word marked. Under each line:</p>
+<table>
+  <tr><th>Control</th><th>Meaning</th></tr>
+  <tr><td><span class="btn">✓ Correct</span></td><td>The word scorer was right; the word keeps counting.</td></tr>
+  <tr><td><span class="btn">✗ Not here</span></td><td>In this sentence the word does not show the trait; it stops counting.</td></tr>
+  <tr><td><span class="btn">↪ Belongs to…</span></td><td>The word does show a trait, but a different one because of the rest of the sentence (for example "must" in "we must win" is self-confidence, not black-and-white thinking). It leaves its old list and counts once for the new one. The × undoes it.</td></tr>
+  <tr><td>Selecting words with the mouse</td><td>Select part of a sentence and an "Add this part to…" bar opens under that line, to count the selected phrase for a trait.</td></tr>
+  <tr><td><span class="btn">+ Whole sentence shows…</span></td><td>Counts the whole sentence for a trait. The × beside it hides this option for that sentence.</td></tr>
+  <tr><td><span class="btn">Not relevant: leave out all its words</span></td><td>Leaves the whole sentence out of the count.</td></tr>
+  <tr><td>Attitude buttons</td><td>For every country or organisation named in the sentence: Positive, Negative or Neutral.</td></tr>
+</table>
+<p>The word scorer results update at once with each decision. Codes used: BACE (belief in control), PWR (power), SC+ / SC−
+(self-confidence high / low), CC+ / CC− (complex / black-and-white thinking), TASK / REL (task / relationship focus), DIS (distrust),
+IGB (in-group bias).</p>
+<h3>The AI's part, and saved examples</h3>
+<ul>
+  <li><span class="btn">Ask Karnak to check the context</span> starts or repeats the AI check (it runs automatically after Analyze). Karnak works through the sentences in groups of eight and fills in decisions marked "AI". Anything you have changed by hand is never overwritten.</li>
+  <li><span class="btn">Save these decisions as examples for Karnak</span> stores your decisions. Next time, identical sentences are filled in automatically (marked "saved"), and similar ones are shown to Karnak as examples to follow. This is not retraining the model; it is a growing set of worked examples.</li>
+  <li>Saved examples are kept in a database on the computer and in the file <span class="code">shared/context_labels.jsonl</span>. When that file is committed to git and pulled on another computer, both machines share the same examples.</li>
+</ul>
+
+<h2>7. Countries, organisations and places named</h2>
+<p>Cortex recognises about 170 countries, international organisations, armed groups, NGOs, regions, seas, straits, trade routes and corridors, in
+English and Arabic. For each one named it shows how often and in which sentences, and the speaker's attitude towards it
+(positive, negative or neutral), from cue words, from the AI, or from your own choice in the context check. You can save these
+statements to the speaker's stakeholder file, building a record of what each leader has said about each country over time.</p>
+
+<h2>8. Stakeholder reactions</h2>
+<p>For each stakeholder Cortex predicts a stance (Support, Oppose, Mixed or Neutral), a confidence, a short reason and the likely
+response (for example "issue a statement through the Foreign Ministry").</p>
+<ul>
+  <li>The AI reacts as the stakeholders you chose (up to 12), reading the speech against each one's values, supports, opposes and concerns, and, where available, a profile distilled from their own past speeches.</li>
+  <li>Everyone else gets a <em>keyword guess</em>: a quick match between the speech and their declared positions. These are shown after the AI's reactions with a "keyword guess" tag. The keyword guess is weak for Arabic speeches.</li>
+  <li>The coalition line counts how many support or oppose; the filter buttons show one stance at a time.</li>
+  <li>"Their view of names in this text" shows what each stakeholder thinks of the countries named, from their profile or their recorded speeches. Click a chip to see what they actually said.</li>
+  <li><span class="btn">Try AI again</span> appears when the AI failed and the keyword guess was used for everyone.</li>
+</ul>
+
+<h2>9. The Stakeholders page and profiles</h2>
+<p>The panel is split into five groups: heads of international organisations; heads of state and government; non-state armed
+groups; non-governmental organisations; and other actors (ministers, envoys, religious and business figures). Each line shows
+the name and the role.</p>
+<table>
+  <tr><th>Control</th><th>What it does</th></tr>
+  <tr><td>A name</td><td>Opens the profile: background, leadership style, personality type, memberships, partners and rivals, recent news, speeches, and the word profile built from their recorded speeches.</td></tr>
+  <tr><td>Partners and rivals (in a profile)</td><td>Click a country to see what this stakeholder has said about it in recent headlines.</td></tr>
+  <tr><td><span class="btn">✎ Edit profile</span></td><td>Change any field: name, role, group, personality, values, positions, background and so on. Only the fields you change are saved; <span class="btn">Restore the original</span> returns to the built-in profile.</td></tr>
+  <tr><td><span class="btn">Add a speech</span></td><td>Store one of the stakeholder's own speeches. It builds their word profile and sharpens the AI's picture of them.</td></tr>
+  <tr><td><span class="btn">Add stakeholder</span></td><td>Adds a new person or organisation with their positions. The group is worked out from the title unless you choose it.</td></tr>
+  <tr><td>× next to a name</td><td>Removes the stakeholder from the panel. Removed built-in stakeholders can be restored from the list at the bottom.</td></tr>
+</table>
+<div class="box warn">Profiles summarise long-standing, publicly stated positions and were checked in November 2026. Leaders change: review profiles when someone leaves office, and use Edit profile to keep them current. Listing an armed group as a stakeholder is for analysis only; its profile records which governments designate it a terrorist organisation.</div>
+
+<div class="page-break"></div>
+<h2>10. Leadership Trait Analysis (LTA) in detail</h2>
+<p>Leadership Trait Analysis assumes that the way leaders speak, especially when they speak spontaneously, reflects stable
+features of how they think and act. By counting particular kinds of words, and comparing the counts with other leaders, an analyst
+can estimate seven traits without meeting the leader.</p>
+<h3>How the word scorer measures a trait</h3>
+<ul>
+  <li><strong>Density traits</strong> (BACE, PWR, DIS, IGB): the number of the trait's words per 1,000 words of speech.</li>
+  <li><strong>Two-list traits</strong> (CC, SC, TASK): two opposing word lists; the value is the first list's share of all hits. For example, 60% complex words and 40% simple words means fairly high conceptual complexity.</li>
+  <li>Words are matched by their root form ("possibilities" matches "possibility"), with grammar filters that follow Hermann's intent: belief in control and power count verbs (actions), task focus counts nouns, distrust counts nouns and adjectives.</li>
+  <li>Belief in control and power only count actions by the speaker or their own side. "We will build" counts; "they built" and "we cannot control" do not.</li>
+  <li>Arabic speeches, in Modern Standard or Egyptian Arabic, are scored against Arabic word lists that recognise attached prefixes and suffixes.</li>
+</ul>
+<h3>From a number to High, Moderate or Low</h3>
+<p>Following Hermann's rule, a value more than one standard deviation above the mean of a comparison group is <strong>High</strong>,
+more than one below is <strong>Low</strong>, and anything between is <strong>Moderate</strong>. The comparison group is a set of
+sample speeches by world leaders; Arabic speeches are compared with Arabic samples, because word rates differ between languages.</p>
+<h3>Evidence and confidence</h3>
+<ul>
+  <li>Short texts are weak evidence: four power words in 100 words is as extreme as forty in 1,000, but far less reliable. Each value is therefore blended with the average, as if the speech came with some extra average text (300 words for density traits, 10 marker words for two-list traits). Long speeches keep their own value; short ones move towards average.</li>
+  <li>Confidence is <strong>high</strong> from about 600 words (or 20 marker words), <strong>medium</strong> from about 200 words (or 7 marker words), and low below that.</li>
+  <li>A trait needs a minimum number of its words before it is called: one per 100 words of speech, from 2 to 5. Below that, a two-list trait shows "Too few words" and a density trait cannot be High.</li>
+  <li>For reliable profiles, Hermann recommends many texts, ideally 50 or more spontaneous interviews and answers of at least 100 words, rather than one prepared speech.</li>
+</ul>
+
+<h2>11. The seven traits</h2>
+<div class="trait"><h3>Belief in ability to control events (BACE)</h3>
+<p>Does the leader feel they can steer events, or are they swept along by them? Measured by verbs of action and control used of the speaker's own side.</p>
+<p><strong>High:</strong> takes charge and initiates ("we decide our own destiny"); less likely to wait for others; may overestimate what can be done.</p>
+<p><strong>Low:</strong> reacts to events and waits; lets others or circumstances lead; more likely to delegate or wait for consensus.</p></div>
+<div class="trait"><h3>Need for power and influence (PWR)</h3>
+<p>How much the leader wants to control and influence other people and groups. Measured by verbs of asserting, attacking, advising and persuading used of the speaker's side.</p>
+<p><strong>High:</strong> dominates, asserts authority, outmanoeuvres rivals, works behind the scenes; good at reading how to get their way.</p>
+<p><strong>Low:</strong> shares influence and prefers cooperation; more comfortable as one among equals.</p></div>
+<div class="trait"><h3>Conceptual complexity (CC)</h3>
+<p>How nuanced or black-and-white the leader's thinking is. Two lists: words of nuance ("possibly", "approximately", "depends") against words of certainty ("absolutely", "always", "without doubt").</p>
+<p><strong>High:</strong> sees shades of grey and several angles, seeks more information, open to other views; can seem indecisive.</p>
+<p><strong>Low:</strong> sees things as right or wrong, simple and certain; decides fast, may ignore conflicting information.</p></div>
+<div class="trait"><h3>Self-confidence (SC)</h3>
+<p>How sure the leader is of themselves. Two lists: self-assured statements about "I", "me", "my" against doubting ones.</p>
+<p><strong>High:</strong> trusts their own judgement, steady under pressure, less swayed by the situation.</p>
+<p><strong>Low:</strong> looks to others and the situation for cues; more changeable.</p>
+<p class="muted">Read SC together with CC: a leader higher in complexity than self-confidence tends to be open to new information; one higher in self-confidence than complexity tends to stick to their views.</p></div>
+<div class="trait"><h3>Task focus (TASK)</h3>
+<p>What drives the leader: getting the job done, or holding people together. Two lists: words about goals, work and results against words about people, feelings and relationships.</p>
+<p><strong>Problem-solving (high):</strong> focused on goals, problems and results; may push people hard.</p>
+<p><strong>Relationship-building (low):</strong> focused on morale, loyalty and keeping the group together.</p></div>
+<div class="trait"><h3>Distrust of others (DIS)</h3>
+<p>How suspicious the leader is of other people and groups. Measured by words of threat, plotting and suspicion.</p>
+<p><strong>High:</strong> sees enemies, threats and hidden motives; checks loyalty; may act pre-emptively.</p>
+<p><strong>Low:</strong> tends to trust others and treat them as possible partners.</p></div>
+<div class="trait"><h3>In-group bias (IGB)</h3>
+<p>How strongly the leader divides the world into "us" and "them". Measured by favourable references to the speaker's own nation or group.</p>
+<p><strong>High:</strong> strong national or group pride; sees outsiders as a threat; keeps the group's identity central.</p>
+<p><strong>Low:</strong> inclusive; sees common ground with other groups.</p></div>
+
+<h2>12. From traits to leadership style</h2>
+<p>Hermann combines the traits to answer three questions about a leader:</p>
+<table>
+  <tr><th>Question</th><th>Traits</th><th>Reading</th></tr>
+  <tr><td>Do they respect or challenge constraints?</td><td>BACE and PWR</td><td>High on both: challenges constraints, pushes through. Low on both: respects constraints, works within them. Mixed: challenges them, but more indirectly.</td></tr>
+  <tr><td>Are they open to information?</td><td>CC and SC</td><td>Complexity above self-confidence: open, takes in advice. Self-confidence above complexity: closed, filters information through their own views.</td></tr>
+  <tr><td>What motivates them?</td><td>TASK, IGB and DIS</td><td>Task focus shows whether the problem or the relationship comes first. High in-group bias and distrust suggest a world seen as threatening, with a need to protect the group; low on both suggests a world seen as full of opportunity.</td></tr>
+</table>
+<p>The AI scorer writes this combined leadership style in words, with the reasoning for each trait.</p>
+
+<h2>13. The two scorers: words and AI</h2>
+<table>
+  <tr><th></th><th>Word scorer</th><th>AI scorer (Karnak)</th></tr>
+  <tr><td>How it works</td><td>Counts the LTA word lists and compares with sample leaders</td><td>Reads the whole speech and judges its meaning, like a trained analyst</td></tr>
+  <tr><td>Result</td><td>High / Moderate / Low, the figure behind it, and the words counted</td><td>0 to 100 per trait, a band, and a reason</td></tr>
+  <tr><td>Strengths</td><td>Fast, fully transparent, repeatable</td><td>Understands tone, irony and meaning without key words</td></tr>
+  <tr><td>Weaknesses</td><td>Misses meaning; a leader can sound aggressive without aggressive words</td><td>Slower; can be wrong in ways that are harder to see</td></tr>
+</table>
+<p>Use both: when they agree, the reading is stronger; when they differ, read the counted words and the AI's reasons to see why.
+The context check is the bridge between them: it brings meaning into the word count.</p>
+
+<h2>14. Karnak, the local AI</h2>
+<ul>
+  <li>Karnak-6B is an Arabic-and-English language model that runs on your own computer through llama.cpp, so speeches stay private.</li>
+  <li>It answers one request at a time. Cortex queues the steps in order (context check, then traits, then reactions) and gives each request up to 5 hours of work time.</li>
+  <li>On an ordinary laptop it writes about 1 to 3 words per second: a long speech can take an hour or more in total. Keep the computer plugged in and awake while it works.</li>
+  <li>The page shows "AI engine off" if Karnak is not running. Start it in its own terminal window (see the README), then press Analyze again.</li>
+</ul>
+
+<h2>15. Good practice and limits</h2>
+<ul>
+  <li>Prefer spontaneous material (interviews, press conferences) over speeches written by speechwriters, and use several texts per leader.</li>
+  <li>Check the extracted text before analysing, especially from PDFs.</li>
+  <li>Set the speaker before analysing.</li>
+  <li>Treat results as an informed estimate, not a diagnosis. Combine them with knowledge of the country and the situation.</li>
+  <li>Review the context check: a few minutes of corrections make the word scores much more accurate, and saved decisions improve the AI next time.</li>
+  <li>Stakeholder reactions are predictions from public positions, not intelligence.</li>
+</ul>
+
+<h2>16. Troubleshooting</h2>
+<table>
+  <tr><th>What you see</th><th>What to do</th></tr>
+  <tr><td>"AI engine off" or "Not found"</td><td>Karnak or the backend is not running, or an old backend is still running after an update. Close the old backend window, start it again, and start Karnak.</td></tr>
+  <tr><td>Nothing changes for more than half an hour on one step</td><td>Press <span class="btn">■ Stop AI</span>, then <span class="btn">Analyze speech</span> again.</td></tr>
+  <tr><td>Stakeholder reactions show "keyword guess" for everyone</td><td>The AI failed or was stopped. Press <span class="btn">Try AI again</span>.</td></tr>
+  <tr><td>"That PDF has no readable text"</td><td>It is a scan. Copy the text from another source and paste it.</td></tr>
+  <tr><td>Stakeholders all appear under "Other actors" after an update</td><td>The backend was not restarted after pulling the new version. Restart it.</td></tr>
+</table>
+
+</body>
+</html>

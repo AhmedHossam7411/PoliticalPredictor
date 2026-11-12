@@ -334,5 +334,10 @@ AR: dict[str, dict] = {
     },
 }
 
+# The world leaders' Arabic text lives with their English (world_leaders.py).
+from .world_leaders import PEOPLE as _WORLD, arabic as _arabic  # noqa: E402
+
+AR.update({_w["id"]: _arabic(_w) for _w in _WORLD})
+
 PERSON_FIELDS = ("name", "role", "personality", "values", "supports", "opposes", "concerns", "responses")
 PROFILE_FIELDS = ("country", "background", "leadership_style", "memberships", "partners", "frictions")

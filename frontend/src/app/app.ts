@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed, effect } from '@angular/core';
+import { Component, inject, signal, computed, effect, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
@@ -94,10 +94,12 @@ interface Review { sentences: ReviewSentence[]; hit_count: number; language: str
 interface ToneDecision { sentence: number; entity: string; tone: string; source?: string; }
 // A trait added for a whole sentence, or (with start/end/text) for one part of it.
 interface AddDecision { sentence: number; label: string; start?: number; end?: number; text?: string; }
+// move: a marked word that belongs to another list in this sentence.
+interface MoveDecision { id: number; label: string; }
 interface Decisions { ignore: number[]; count: number[]; confirm: number[]; add: AddDecision[];
-  tones: ToneDecision[]; noWhole?: number[]; }
+  tones: ToneDecision[]; noWhole?: number[]; move?: MoveDecision[]; }
 interface AiJob { id: string; status: 'running' | 'done' | 'failed' | 'cancelled'; done: number; total: number;
-  decisions: { ignore: number[]; count?: number[]; confirm?: number[]; add: AddDecision[]; tones: ToneDecision[] };
+  decisions: { ignore: number[]; count?: number[]; confirm?: number[]; move?: MoveDecision[]; add: AddDecision[]; tones: ToneDecision[] };
   // reused: sentences filled in from saved decisions; examples: saved sentences shown to Karnak.
   reviewed: number[]; reused?: number[]; examples?: number; error: string; }
 interface SentencePiece { text: string; hit?: ReviewHit; ent?: ReviewEntity; }
@@ -108,8 +110,8 @@ interface DictResult {
   input?: InputInfo; vics_supported?: boolean;
   lta: { tokens: number; traits: Record<string, DictTrait> };
   spans?: WordSpan[];
-  entities?: EntitySpan[]; entity_summary?: EntitySummary[];
-  context?: { ignored: number; counted: number; added: number; toned: number };
+  entities?: EntitySpan[]; entity_summary?: EntitySummary[]; home?: EntityRef[];
+  context?: { ignored: number; counted: number; added: number; toned: number; moved?: number };
   vics: Record<string, { label: string; value?: number }>;
 }
 interface LlmTrait { score: number; band: string; rationale: string; }
@@ -121,11 +123,14 @@ interface LlmResult {
   excerpted?: Excerpted | null;
 }
 interface Meta { lta_traits: string[]; vics_indices: string[];
-  norming_corpus_default: string[]; llm_available: boolean; }
+  norming_corpus_default: string[]; llm_available: boolean;
+  max_ai_reactors?: number; default_reactors?: string[]; }
 interface Reaction { id: string; name: string; role: string; stance: string;
-  confidence: number; reasoning: string; response: string; views?: View[]; }
+  confidence: number; reasoning: string; response: string; views?: View[];
+  /** false: a keyword guess (not chosen for the AI, or skipped by it). */
+  ai?: boolean; }
 interface StakeResult { reactions: Reaction[]; method: string; model?: string;
-  calibrated?: boolean; fallback_reason?: string; excerpted?: Excerpted | null;
+  calibrated?: boolean; fallback_reason?: string; excerpted?: Excerpted | null; reactors?: string[];
   read_in_parts?: { parts: number; total_words: number } | null; }
 interface PublicStakeholder { id: string; name: string; role: string; scope?: string;
   personality?: string; values: string[]; supports: string[]; opposes: string[];
@@ -156,7 +161,7 @@ const LABEL_OF_CODE: Record<string, string> = {
 const CODE_OF_LABEL: Record<string, string> = Object.fromEntries(
   Object.entries(LABEL_OF_CODE).map(([code, label]) => [code, label]).map(([c, l]) => [l, c]));
 const IGNORED_STYLE = 'background:transparent;box-shadow:none;text-decoration:line-through;opacity:.5;';
-const noDecisions = (): Decisions => ({ ignore: [], count: [], confirm: [], add: [], tones: [] });
+const noDecisions = (): Decisions => ({ ignore: [], count: [], confirm: [], add: [], tones: [], move: [] });
 const toggled = (list: number[], id: number) => list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
 
 @Component({
@@ -220,7 +225,7 @@ export class App {
   showPanel = signal(false);
   showAddForm = signal(false);
   nsName = signal(''); nsRole = signal(''); nsCategory = signal('');
-  readonly shGroups = ['organization', 'state', 'government', 'other'];
+  readonly shGroups = ['organization', 'state', 'nonstate', 'ngo', 'other'];
   /** The panel split into its four groups, always in this order and numbering. */
   stakeholderGroups = computed(() => this.shGroups
     .map((g) => ({ key: g, people: this.stakeholders().filter((s) => (s.category || 'other') === g) })));
@@ -237,6 +242,30 @@ export class App {
   anyLoading = computed(() =>
     this.dictLoading() || this.llmLoading() || this.stakeLoading());
   analyzed = computed(() => !!this.dict() || !!this.llm() || !!this.stake());
+
+  /** Stop AI: something is running on Karnak (context check, AI traits or reactions). */
+  aiBusy = computed(() => this.llmLoading() || this.stakeLoading() || !!this.aiQueued()
+    || this.aiJob()?.status === 'running');
+  stoppingAi = signal(false);
+  aiStopped = signal(false);
+
+  /** End every AI job on the server, including the request Karnak is working on, so a
+   *  stuck or broken run doesn't block the next one. The Word scorer results stay. */
+  stopAllAi() {
+    // Clear the queue first, so nothing starts the AI traits/reactions afterwards.
+    this.aiQueued.set('');
+    if (this.aiTimer) { clearTimeout(this.aiTimer); this.aiTimer = null; }
+    const j = this.aiJob();
+    if (j?.status === 'running') this.aiJob.set({ ...j, status: 'cancelled' });
+    this.llmJob.set(''); this.stakeJob.set('');
+    this.llmLoading.set(false); this.stakeLoading.set(false);
+    this.error.set('');
+    this.stoppingAi.set(true);
+    this.http.post(`${API}/ai/stop`, {}).subscribe({
+      next: () => { this.stoppingAi.set(false); this.aiStopped.set(true); },
+      error: (e) => { this.stoppingAi.set(false); this.error.set(this.msg(e)); },
+    });
+  }
 
   /** "The AI read 5,120 of 41,836 words…", or '' when it read the whole text. */
   /** Says the AI read a long document whole, part by part. */
@@ -324,6 +353,18 @@ export class App {
   touched = signal<ReadonlySet<number>>(new Set());  // sentences a person changed; Karnak leaves them alone
   aiJob = signal<AiJob | null>(null);
   cxShown = signal(20);
+  /** The context check is open; it closes itself when Karnak finishes, and its title opens it again. */
+  cxOpen = signal(true);
+  /** Sentences opened under their number (closed by default). */
+  cxRows = signal<Set<number>>(new Set());
+  rowOpen(i: number) { return this.cxRows().has(i); }
+  toggleRow(i: number) {
+    const s = new Set(this.cxRows());
+    if (s.has(i)) s.delete(i); else s.add(i);
+    this.cxRows.set(s);
+  }
+  openAllRows() { this.cxRows.set(new Set(this.cxList().slice(0, this.cxShown()).map((s) => s.i))); }
+  closeAllRows() { this.cxRows.set(new Set()); }
   cxFilter = signal<'all' | 'changed' | 'names'>('all');
   cxMsg = signal('');
   cxCodes = Object.keys(LABEL_OF_CODE);
@@ -348,7 +389,9 @@ export class App {
   });
   changedSentences = computed(() => {
     const d = this.decisions(), hs = this.hitSentence(), out = new Set<number>();
-    for (const id of [...d.ignore, ...d.count]) { const si = hs.get(id); if (si !== undefined) out.add(si); }
+    for (const id of [...d.ignore, ...d.count, ...(d.move ?? []).map((m) => m.id)]) {
+      const si = hs.get(id); if (si !== undefined) out.add(si);
+    }
     for (const a of d.add) out.add(a.sentence);
     for (const t of d.tones) out.add(t.sentence);
     return out;
@@ -391,16 +434,41 @@ export class App {
   initialOf(h: ReviewHit): string { return h.labels.map((l) => this.listName(l)).join(' + '); }
 
   /** 'right' = ticked as correct; 'wrong' = the first reading was overturned; '' = not decided. */
-  verdict(h: ReviewHit): 'right' | 'wrong' | '' {
+  verdict(h: ReviewHit): 'right' | 'wrong' | 'moved' | '' {
     const d = this.decisions();
+    if (this.movedTo(h)) return 'moved';
     if (d.confirm.includes(h.id)) return 'right';
     if (h.counted ? d.ignore.includes(h.id) : d.count.includes(h.id) && !d.ignore.includes(h.id)) return 'wrong';
     return '';
   }
 
+  /** The list this word was moved to in this sentence, if any. */
+  movedTo(h: ReviewHit): string {
+    const d = this.decisions();
+    return d.ignore.includes(h.id) ? '' : (d.move ?? []).find((m) => m.id === h.id)?.label ?? '';
+  }
+
+  /** The codes a word can be moved to: every list except the ones it is already on. */
+  moveCodes(h: ReviewHit): string[] {
+    const own = new Set(h.labels.map((l) => isSkipped(l) ? `${l.split(':')[0]}:high` : l));
+    return this.cxCodes.filter((c) => !own.has(LABEL_OF_CODE[c]));
+  }
+
+  moveHit(s: ReviewSentence, h: ReviewHit, code: string) {
+    const label = LABEL_OF_CODE[code];
+    if (!label) return;
+    this.change(s.i, (d) => ({ ...d, move: [...(d.move ?? []).filter((m) => m.id !== h.id), { id: h.id, label }],
+      ignore: d.ignore.filter((x) => x !== h.id), count: d.count.filter((x) => x !== h.id),
+      confirm: d.confirm.filter((x) => x !== h.id) }));
+  }
+
+  unmoveHit(s: ReviewSentence, h: ReviewHit) {
+    this.change(s.i, (d) => ({ ...d, move: (d.move ?? []).filter((m) => m.id !== h.id) }));
+  }
+
   markRight(s: ReviewSentence, h: ReviewHit) {
     const again = this.verdict(h) === 'right';
-    this.change(s.i, (d) => ({ ...d,
+    this.change(s.i, (d) => ({ ...d, move: (d.move ?? []).filter((m) => m.id !== h.id),
       confirm: again ? d.confirm.filter((x) => x !== h.id) : [...new Set([...d.confirm, h.id])],
       ignore: d.ignore.filter((x) => x !== h.id), count: d.count.filter((x) => x !== h.id) }));
   }
@@ -408,7 +476,7 @@ export class App {
   markWrong(s: ReviewSentence, h: ReviewHit) {
     const again = this.verdict(h) === 'wrong';
     this.change(s.i, (d) => {
-      const base = { ...d, confirm: d.confirm.filter((x) => x !== h.id),
+      const base = { ...d, confirm: d.confirm.filter((x) => x !== h.id), move: (d.move ?? []).filter((m) => m.id !== h.id),
                      ignore: d.ignore.filter((x) => x !== h.id), count: d.count.filter((x) => x !== h.id) };
       if (again) return base;
       return h.counted ? { ...base, ignore: [...base.ignore, h.id] } : { ...base, count: [...base.count, h.id] };
@@ -416,9 +484,9 @@ export class App {
   }
 
   // --- A part of a sentence, selected with the mouse ---------------------------
-  partSel = signal<{ si: number; start: number; end: number; text: string } | null>(null);
+  partSel = signal<{ si: number; line: number; start: number; end: number; text: string } | null>(null);
 
-  pickPart(s: ReviewSentence, ev: Event) {
+  pickPart(s: ReviewSentence, ev: Event, line: number = -1) {
     const el = ev.currentTarget as HTMLElement;
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !sel.rangeCount) return;
@@ -436,7 +504,7 @@ export class App {
     at += lead;
     // Offsets count code points, like the server's.
     const start = s.start + Array.from(s.text.slice(0, at)).length;
-    this.partSel.set({ si: s.i, start, end: start + Array.from(text).length, text });
+    this.partSel.set({ si: s.i, line, start, end: start + Array.from(text).length, text });
   }
 
   addPart(s: ReviewSentence, code: string) {
@@ -464,8 +532,8 @@ export class App {
   });
   contextNote = computed(() => {
     const c = this.dict()?.context;
-    if (!c || !(c.ignored || c.counted || c.added)) return '';
-    return this.t().cx['applied'].replace('{ignored}', String(c.ignored))
+    if (!c || !(c.ignored || c.counted || c.added || c.moved)) return '';
+    return this.t().cx['applied'].replace('{ignored}', String(c.ignored)).replace('{moved}', String(c.moved ?? 0))
       .replace('{counted}', String(c.counted)).replace('{added}', String(c.added));
   });
 
@@ -476,7 +544,8 @@ export class App {
     this.fromAi.set(new Set()); this.touched.set(new Set());
     this.cxShown.set(20); this.cxFilter.set('all'); this.cxMsg.set(''); this.saveMsg.set('');
     this.partSel.set(null);
-    this.http.post<Review>(`${API}/context/review`, { text }).subscribe({
+    this.cxOpen.set(true); this.cxRows.set(new Set());
+    this.http.post<Review>(`${API}/context/review`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
       next: (r) => {
         if (this.dictText() !== text) return;
         this.review.set(r);
@@ -491,7 +560,7 @@ export class App {
     this.stopAi(true);
     this.aiJob.set({ id: '', status: 'running', done: 0, total: 0,
       decisions: { ignore: [], add: [], tones: [] }, reviewed: [], error: '' });
-    this.http.post<{ job: string }>(`${API}/context/ai`, { text }).subscribe({
+    this.http.post<{ job: string }>(`${API}/context/ai`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
       next: ({ job }) => { this.aiJob.update((j) => j && { ...j, id: job }); this.pollAi(job, text, 1500); },
       error: (e) => { this.aiJob.update((j) => j && { ...j, status: 'failed', error: this.msg(e) }); this.releaseAi(); },
     });
@@ -505,7 +574,10 @@ export class App {
           this.aiJob.set(j);
           this.mergeAi(j.decisions);
           if (j.status === 'running') this.pollAi(id, text);
-          else this.releaseAi();
+          else {
+            if (j.status === 'done') this.cxOpen.set(false);  // finished: fold it away
+            this.releaseAi();
+          }
         },
         error: (e) => { this.aiJob.update((j) => j && { ...j, status: 'failed', error: this.msg(e) }); this.releaseAi(); },
       });
@@ -541,6 +613,13 @@ export class App {
     takeIds(ai.ignore, 'ignore', 'i');
     takeIds(ai.count, 'count', 'c');
     takeIds(ai.confirm, 'confirm', 'r');
+    for (const m of ai.move ?? []) {
+      const si = hs.get(m.id), k = `m:${m.id}`;
+      if (si === undefined || touched.has(si) || mark.has(k)) continue;
+      mark.add(k);
+      next.move = [...(next.move ?? []).filter((x) => x.id !== m.id), m];
+      changed = true;
+    }
     for (const a of ai.add) {
       const k = `a:${a.sentence}:${a.label}:${a.start ?? ''}`;
       if (touched.has(a.sentence) || mark.has(k)) continue;
@@ -565,7 +644,7 @@ export class App {
   /** Score the text again with the decisions; the newest request wins. */
   private rescore() {
     const text = this.dictText(), seq = ++this.rescoreSeq;
-    this.http.post<DictResult>(`${API}/context/rescore`, { text, decisions: this.decisions() }).subscribe({
+    this.http.post<DictResult>(`${API}/context/rescore`, { text, decisions: this.decisions(), speaker: this.analyzedSpeaker() || null }).subscribe({
       next: (r) => { if (seq === this.rescoreSeq && this.dictText() === text) this.dict.set(r); },
       error: (e) => this.error.set(this.msg(e)),
     });
@@ -582,6 +661,8 @@ export class App {
   }
 
   hitStyle(h: ReviewHit): string {
+    const moved = this.movedTo(h);
+    if (moved) return highlightStyle([moved]);
     if (!this.hitOn(h)) return h.counted ? IGNORED_STYLE : highlightStyle(h.labels);
     return highlightStyle(h.labels.map((l) => isSkipped(l) ? `${l.split(':')[0]}:high` : l));
   }
@@ -773,8 +854,13 @@ export class App {
     return all
       .filter((r) => f === 'All' || r.stance === f)
       .slice()
-      .sort((a, b) => rank(a.stance) - rank(b.stance) || b.confidence - a.confidence);
+      // The AI's reactions first, then the keyword guesses.
+      .sort((a, b) => Number(b.ai !== false) - Number(a.ai !== false)
+        || rank(a.stance) - rank(b.stance) || b.confidence - a.confidence);
   });
+
+  /** How many reactions are keyword guesses (people not chosen for the AI). */
+  guessCount = computed(() => (this.stake()?.reactions ?? []).filter((r) => r.ai === false).length);
 
   setStanceFilter(s: string) { this.stanceFilter.set(s); }
 
@@ -1289,6 +1375,9 @@ export class App {
     if (!this.text().trim()) return;
     const snapshot = this.text();
     this.submittedText.set(snapshot);
+    this.aiStopped.set(false);
+    this.analyzedSpeaker.set(this.speaker());
+    if (this.speaker()) this.saveSid.set(this.speaker());
     const picked = this.docSpeeches().find((s) => s.id === this.selectedSpeech());
     this.analyzedSpeech.set(picked ? this.speechLabel(picked) : '');
     this.analyzedMixed.set(!picked && this.docSpeeches().length > 0);
@@ -1302,6 +1391,65 @@ export class App {
     this.aiQueued.set(snapshot);
     this.runDictionary(snapshot);
   }
+
+  /** Who is speaking (a stakeholder id), chosen before analysing: their own country is
+   *  left out of the places named. `analyzedSpeaker` is the choice the current results used. */
+  /** The floating buttons: jump straight to the top or the bottom of the page. */
+  jumpTo(where: 'top' | 'bottom') {
+    const top = where === 'top' ? 0 : document.documentElement.scrollHeight;
+    window.scrollTo({ top, behavior: 'instant' as ScrollBehavior });
+  }
+
+  speaker = signal('');
+  /** What is typed in the speaker search box. */
+  speakerQuery = signal('');
+  /** Pick the speaker by typing or choosing a name; anything that isn't a name clears it. */
+  searchSpeaker(v: string) {
+    this.speakerQuery.set(v);
+    const q = v.trim().toLowerCase();
+    const hit = this.stakeholders().find((s) => s.name.toLowerCase() === q);
+    this.speaker.set(hit ? hit.id : '');
+  }
+  private syncSpeakerName = effect(() => {
+    // A speaker set elsewhere (a restored page, a language switch) shows its name.
+    const id = this.speaker();
+    const s = this.stakeholders().find((x) => x.id === id);
+    if (s && untracked(() => this.speakerQuery()).trim().toLowerCase() !== s.name.toLowerCase()) {
+      this.speakerQuery.set(s.name);
+    }
+  });
+
+  /** Who Karnak gives reactions for (stakeholder ids, at most maxReactors); the rest of
+   *  the panel get the quick keyword guess. Remembered in this browser. */
+  reactors = signal<string[]>(this.loadReactors());
+  maxReactors = computed(() => this.meta()?.max_ai_reactors ?? 12);
+  /** The ids actually used: the saved choice, or the server's default panel. */
+  chosenReactors = computed(() => {
+    const ids = new Set(this.stakeholders().map((s) => s.id));
+    const mine = this.reactors().filter((id) => ids.has(id));
+    const fallback = ['sisi', 'mbs', 'mbz', 'tamim', 'abdullah-ii', 'erdogan', 'netanyahu',
+      'pezeshkian', 'abbas', 'sharaa', 'madbouly', 'abdelatty'];
+    return mine.length ? mine : (this.meta()?.default_reactors ?? fallback).filter((id) => ids.has(id));
+  });
+  isReactor(id: string) { return this.chosenReactors().includes(id); }
+  toggleReactor(id: string) {
+    const now = this.chosenReactors();
+    const next = now.includes(id) ? now.filter((x) => x !== id)
+      : now.length < this.maxReactors() ? [...now, id] : now;
+    this.setReactors(next);
+  }
+  resetReactors() { this.setReactors([]); }
+  private setReactors(ids: string[]) {
+    this.reactors.set(ids);
+    try { localStorage.setItem('cortex_reactors', JSON.stringify(ids)); } catch { /* private mode */ }
+  }
+  private loadReactors(): string[] {
+    try {
+      const v = JSON.parse(localStorage.getItem('cortex_reactors') || '[]');
+      return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [];
+    } catch { return []; }
+  }
+  analyzedSpeaker = signal('');
 
   /** Text waiting for the AI trait scores and stakeholder reactions until the context check ends. */
   aiQueued = signal('');
@@ -1318,7 +1466,8 @@ export class App {
     if (!text.trim()) return;
     this.stanceFilter.set('All');
     this.stakeLoading.set(true); this.error.set('');
-    this.http.post<{ job: string }>(`${API}/jobs/stakeholders`, { text, language: this.lang() }).subscribe({
+    this.http.post<{ job: string }>(`${API}/jobs/stakeholders`, { text, language: this.lang(), speaker: this.analyzedSpeaker() || null,
+      reactors: this.chosenReactors() }).subscribe({
       next: ({ job }) => { this.stakeJob.set(job); this.pollJob<StakeResult>(job, 'stake', text); },
       error: (e) => { this.error.set(this.msg(e)); this.stakeLoading.set(false); },
     });
@@ -1327,7 +1476,7 @@ export class App {
   runDictionary(text: string = this.text()) {
     if (!text.trim()) return;
     this.dictLoading.set(true); this.error.set('');
-    this.http.post<DictResult>(`${API}/analyze`, { text }).subscribe({
+    this.http.post<DictResult>(`${API}/analyze`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
       next: (r) => { this.dict.set(r); this.dictText.set(text); this.dictLoading.set(false); this.loadReview(text); },
       error: (e) => { this.error.set(this.msg(e)); this.dictLoading.set(false); this.releaseAi(); },
     });
@@ -1336,7 +1485,7 @@ export class App {
   runLlm(text: string = this.text()) {
     if (!text.trim()) return;
     this.llmLoading.set(true); this.error.set('');
-    this.http.post<{ job: string }>(`${API}/jobs/llm`, { text, language: this.lang() }).subscribe({
+    this.http.post<{ job: string }>(`${API}/jobs/llm`, { text, language: this.lang(), speaker: this.analyzedSpeaker() || null }).subscribe({
       next: ({ job }) => { this.llmJob.set(job); this.pollJob<LlmResult>(job, 'llm', text); },
       error: (e) => { this.error.set(this.msg(e)); this.llmLoading.set(false); },
     });
@@ -1353,7 +1502,7 @@ export class App {
       this.http.get<{ status: string; result: T | null; error: string; code: number }>(`${API}/jobs/${id}`).subscribe({
         next: (j) => {
           if (j.status === 'running') { this.pollJob<T>(id, which, text); return; }
-          const failed = j.status !== 'done';
+          const failed = j.status !== 'done' && j.status !== 'stopped';
           if (which === 'llm') {
             if (!failed) this.llm.set(j.result as LlmResult);
             this.llmLoading.set(false); this.llmJob.set('');
@@ -1385,6 +1534,7 @@ export class App {
       llm: this.llm(), stake: this.stake(), llmJob: this.llmJob(), stakeJob: this.stakeJob(),
       decisions: this.decisions(), fromAi: [...this.fromAi()], touched: [...this.touched()],
       aiJob: this.aiJob(), aiQueued: this.aiQueued(),
+      speaker: this.speaker(), analyzedSpeaker: this.analyzedSpeaker(),
     };
     try { sessionStorage.setItem(App.STATE_KEY, JSON.stringify(state)); }
     catch { /* too big or storage off: the analysis still works, it just won't survive a refresh */ }
@@ -1394,7 +1544,12 @@ export class App {
   private restoreState() {
     let st: any = null;
     try { st = JSON.parse(sessionStorage.getItem(App.STATE_KEY) || 'null'); } catch { st = null; }
-    if (!st?.submitted) { if (st?.text) this.text.set(st.text); if (st?.page) this.page.set(st.page); return; }
+    if (!st?.submitted) {
+      if (st?.text) this.text.set(st.text);
+      if (st?.page) this.page.set(st.page);
+      if (st?.speaker) this.speaker.set(st.speaker);
+      return;
+    }
     this.restoring = true;
     const text: string = st.submitted;
     this.text.set(st.text ?? text); this.submittedText.set(text); this.page.set(st.page ?? 'analyze');
@@ -1403,13 +1558,14 @@ export class App {
     this.decisions.set({ ...noDecisions(), ...(st.decisions ?? {}) });
     this.fromAi.set(new Set(st.fromAi ?? [])); this.touched.set(new Set(st.touched ?? []));
     this.aiJob.set(st.aiJob ?? null); this.aiQueued.set(st.aiQueued ?? '');
+    this.speaker.set(st.speaker ?? ''); this.analyzedSpeaker.set(st.analyzedSpeaker ?? '');
     this.restoring = false;
     // The word scorer and the review are quick to redo; the decisions are kept.
     this.dictText.set(text); this.dictLoading.set(true);
-    this.http.post<DictResult>(`${API}/analyze`, { text }).subscribe({
+    this.http.post<DictResult>(`${API}/analyze`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
       next: (r) => {
         this.dict.set(r); this.dictLoading.set(false);
-        this.http.post<Review>(`${API}/context/review`, { text }).subscribe({
+        this.http.post<Review>(`${API}/context/review`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
           next: (rv) => {
             this.review.set(rv);
             this.rescore();

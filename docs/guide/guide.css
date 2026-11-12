@@ -1,0 +1,35 @@
+@page { size: A4; margin: 18mm 16mm 18mm 16mm; }
+:root { --ink: #1b2430; --muted: #5b6676; --accent: #1d3f72; --gold: #b08d3e; --line: #d9dee6; --soft: #f3f5f9; }
+* { box-sizing: border-box; }
+body { font-family: "Segoe UI", "SF Pro Text", Roboto, Arial, sans-serif; color: var(--ink); font-size: 10.5pt; line-height: 1.55; margin: 0; }
+html[dir="rtl"] body { font-family: "Segoe UI", "Geeza Pro", Tahoma, Arial, sans-serif; font-size: 11.5pt; line-height: 1.8; }
+h1, h2, h3 { font-family: Baskerville, "Baskerville Old Face", Georgia, "Times New Roman", serif; color: var(--accent); line-height: 1.25; }
+html[dir="rtl"] h1, html[dir="rtl"] h2, html[dir="rtl"] h3 { font-family: "Traditional Arabic", "Al Nile", "Segoe UI", serif; }
+h1 { font-size: 30pt; margin: 0; letter-spacing: 0.06em; }
+h2 { font-size: 17pt; margin: 22pt 0 6pt; border-bottom: 1.5pt solid var(--gold); padding-bottom: 3pt; break-after: avoid; }
+h3 { font-size: 12.5pt; margin: 14pt 0 4pt; break-after: avoid; }
+p { margin: 0 0 7pt; }
+ul, ol { margin: 0 0 8pt; padding-inline-start: 18pt; }
+li { margin-bottom: 3pt; }
+.cover { height: 250mm; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; break-after: page; }
+.cover .rule { width: 60mm; height: 2pt; background: var(--gold); margin: 8pt auto; }
+.cover .sub { font-size: 14pt; color: var(--muted); }
+.cover .ar { font-size: 16pt; color: var(--gold); }
+.cover .date { margin-top: 30pt; color: var(--muted); }
+.toc ol { columns: 2; column-gap: 24pt; }
+.box { background: var(--soft); border-inline-start: 3pt solid var(--accent); padding: 7pt 10pt; margin: 8pt 0; break-inside: avoid; }
+.warn { border-inline-start-color: #b45309; background: #fff7ed; }
+table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 9.8pt; break-inside: auto; }
+th, td { border: 0.75pt solid var(--line); padding: 4pt 6pt; vertical-align: top; text-align: start; }
+th { background: var(--soft); color: var(--accent); }
+tr { break-inside: avoid; }
+.trait { border: 0.75pt solid var(--line); border-radius: 4pt; padding: 7pt 10pt; margin: 8pt 0; break-inside: avoid; }
+.trait h3 { margin-top: 0; }
+.code { font-family: Consolas, "Courier New", monospace; background: var(--soft); padding: 0 3pt; border-radius: 2pt; }
+.btn { display: inline-block; border: 0.75pt solid var(--accent); color: var(--accent); border-radius: 3pt; padding: 0 4pt; font-size: 9.5pt; white-space: nowrap; }
+.muted { color: var(--muted); }
+.page-break { break-before: page; }
+/* Arabic title faces run small: size them up. */
+html[dir="rtl"] h2 { font-size: 21pt; }
+html[dir="rtl"] h3 { font-size: 16pt; }
+html[dir="rtl"] .cover .ar { font-size: 22pt; }

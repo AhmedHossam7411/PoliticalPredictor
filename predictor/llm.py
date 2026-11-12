@@ -14,6 +14,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
+import threading
 import time
 
 import httpx
@@ -24,11 +26,91 @@ LOCAL_BASE_URL = "http://127.0.0.1:8080/v1"
 BASE_URL = (os.environ.get("LLM_BASE_URL") or LOCAL_BASE_URL).rstrip("/")
 CHAT_URL = BASE_URL + "/chat/completions"
 DEFAULT_MODEL = "karnak-6b"
-# A model on an ordinary computer is slow: allow up to an hour per call.
-TIMEOUT = float(os.environ.get("LLM_TIMEOUT") or 3600)
+# A model on an ordinary computer is slow: allow up to 5 hours per call.
+TIMEOUT = float(os.environ.get("LLM_TIMEOUT") or 18000)
 # Most input tokens to send in one call. Karnak is started with a 16k context,
 # which leaves room for the prompt and the answer.
 MAX_INPUT_TOKENS = int(os.environ.get("LLM_MAX_INPUT_TOKENS") or 7500)
+# Karnak is started with -np 1: it works on one request at a time and queues the
+# rest. Waiting in its queue counted against TIMEOUT, so a request stuck behind
+# the context check and the traits ran out of time before Karnak even began it.
+# Calls now wait their turn here, and the timeout covers only Karnak's own work.
+PARALLEL = max(1, int(os.environ.get("LLM_PARALLEL") or 1))
+_TURN = threading.BoundedSemaphore(PARALLEL)
+
+
+# --------------------------------------------------------------------------- #
+# Stop AI: end every AI job now, including the request Karnak is working on.
+# --------------------------------------------------------------------------- #
+class Stopped(Exception):
+    """Someone pressed Stop AI."""
+
+
+STOPPED_MESSAGE = "The AI was stopped by hand."
+_stop_count = 0           # goes up by one each time Stop AI is pressed
+_local = threading.local()  # the stop count when this thread's job began
+_live: set = set()        # connections to Karnak that are open right now
+_live_lock = threading.Lock()
+
+
+def begin_job() -> int:
+    """Mark the start of an AI job in this thread; a later Stop AI ends it."""
+    _local.started = _stop_count
+    return _stop_count
+
+
+def join_job(started: int) -> None:
+    """A helper thread working for a job started at `started` (see begin_job)."""
+    _local.started = started
+
+
+def _check(started: int) -> None:
+    if _stop_count != started:
+        raise Stopped(STOPPED_MESSAGE)
+
+
+def stop_all() -> int:
+    """End every AI job. Returns how many requests to Karnak were cut off."""
+    global _stop_count
+    _stop_count += 1
+    with _live_lock:
+        clients = list(_live)
+    for c in clients:
+        _hang_up(c)
+    return len(clients)
+
+
+def _hang_up(client: httpx.Client) -> None:
+    """Close a connection that may be waiting on Karnak. Karnak sees the caller gone
+    and drops the request, so it is free for the next one."""
+    try:
+        for conn in client._transport._pool.connections:  # httpx keeps these private
+            stream = getattr(getattr(conn, "_connection", None), "_network_stream", None)
+            sock = getattr(stream, "_sock", None)
+            if sock is not None:
+                sock.shutdown(socket.SHUT_RDWR)  # wakes the thread that is waiting on it
+    except Exception:
+        pass
+    try:
+        client.close()
+    except Exception:
+        pass
+
+
+def _post(payload: dict, headers: dict, timeout: float, started: int) -> httpx.Response:
+    client = httpx.Client(timeout=timeout)
+    with _live_lock:
+        _live.add(client)
+    try:
+        _check(started)
+        return client.post(CHAT_URL, json=payload, headers=headers)
+    except Exception:
+        _check(started)  # hung up by Stop AI: say so, not "connection closed"
+        raise
+    finally:
+        with _live_lock:
+            _live.discard(client)
+        client.close()
 _MIN_SPEECH_TOKENS = 500
 _EXCERPTS = 8
 
@@ -214,6 +296,9 @@ def chat_json(messages: list[dict], temperature: float, model: str | None = None
     """
     if not available():
         raise LLMNotConfigured(not_configured_reason())
+    started = getattr(_local, "started", None)
+    started = _stop_count if started is None else started
+    _check(started)
     api_key = _api_key()
     timeout = timeout or TIMEOUT
     primary = model or _model()
@@ -232,7 +317,8 @@ def chat_json(messages: list[dict], temperature: float, model: str | None = None
         if reasoning_effort and m.startswith("openai/gpt-oss"):
             payload["reasoning_effort"] = reasoning_effort
         try:
-            resp = httpx.post(CHAT_URL, json=payload, headers=headers, timeout=timeout)
+            with _TURN:
+                resp = _post(payload, headers, timeout, started)
             if resp.status_code == 429 and i == 0:
                 wait = _retry_after(resp)
             resp.raise_for_status()

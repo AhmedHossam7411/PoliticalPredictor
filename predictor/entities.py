@@ -22,28 +22,9 @@ from . import arabic
 from .dossier import COUNTRIES, tone_of
 
 # key: (English name, Arabic name, kind, English forms, Arabic forms)
-_EXTRA_COUNTRIES = {
-    "UA": ("Ukraine", "أوكرانيا", ["Ukraine", "Ukrainian", "Kyiv", "Kiev"], ["أوكرانيا", "الأوكراني", "الأوكرانية", "كييف"]),
-    "LB": ("Lebanon", "لبنان", ["Lebanon", "Lebanese", "Beirut"], ["لبنان", "اللبناني", "اللبنانية", "بيروت"]),
-    "JP": ("Japan", "اليابان", ["Japan", "Japanese", "Tokyo"], ["اليابان", "الياباني", "اليابانية"]),
-    "KP": ("North Korea", "كوريا الشمالية", ["North Korea", "North Korean", "Pyongyang", "DPRK"], ["كوريا الشمالية", "بيونغ يانغ"]),
-    "KR": ("South Korea", "كوريا الجنوبية", ["South Korea", "South Korean", "Seoul"], ["كوريا الجنوبية", "سيول"]),
-    "CA": ("Canada", "كندا", ["Canada", "Canadian", "Ottawa"], ["كندا", "الكندي", "الكندية"]),
-    "MX": ("Mexico", "المكسيك", ["Mexico", "Mexican"], ["المكسيك", "المكسيكي", "المكسيكية"]),
-    "BR": ("Brazil", "البرازيل", ["Brazil", "Brazilian"], ["البرازيل", "البرازيلي"]),
-    "VE": ("Venezuela", "فنزويلا", ["Venezuela", "Venezuelan"], ["فنزويلا", "الفنزويلي"]),
-    "IT": ("Italy", "إيطاليا", ["Italy", "Italian", "Rome"], ["إيطاليا", "الإيطالي", "الإيطالية"]),
-    "ES": ("Spain", "إسبانيا", ["Spain", "Spanish", "Madrid"], ["إسبانيا", "الإسباني"]),
-    "AF": ("Afghanistan", "أفغانستان", ["Afghanistan", "Afghan", "Kabul", "Taliban"], ["أفغانستان", "الأفغاني", "طالبان"]),
-    "DZ": ("Algeria", "الجزائر", ["Algeria", "Algerian"], ["الجزائر", "الجزائري", "الجزائرية"]),
-    "TN": ("Tunisia", "تونس", ["Tunisia", "Tunisian"], ["تونس", "التونسي", "التونسية"]),
-    "SO": ("Somalia", "الصومال", ["Somalia", "Somali", "Mogadishu"], ["الصومال", "الصومالي"]),
-    "ER": ("Eritrea", "إريتريا", ["Eritrea", "Eritrean"], ["إريتريا", "الإريتري"]),
-    "SS": ("South Sudan", "جنوب السودان", ["South Sudan"], ["جنوب السودان"]),
-    "ZA": ("South Africa", "جنوب أفريقيا", ["South Africa", "South African"], ["جنوب أفريقيا", "جنوب إفريقيا"]),
-    "NG": ("Nigeria", "نيجيريا", ["Nigeria", "Nigerian"], ["نيجيريا"]),
-    "MR": ("Mauritania", "موريتانيا", ["Mauritania", "Mauritanian"], ["موريتانيا"]),
-}
+# Countries beyond the profiles' own now live in world_leaders.COUNTRIES_EXTRA and
+# reach this module through dossier.COUNTRIES.
+_EXTRA_COUNTRIES: dict = {}
 
 _ORGS = {
     "UN": ("United Nations", "الأمم المتحدة",
@@ -158,6 +139,10 @@ _PLACES = {
                   ["منتدى غاز شرق المتوسط"]),
 }
 
+from .world_nonstate import ORGS_EXTRA as _MORE_ORGS  # noqa: E402
+
+_ORGS.update(_MORE_ORGS)
+
 ENTITIES: dict[str, dict] = {}
 for _k, (_en, _ar, _ef, _af) in {**COUNTRIES, **_EXTRA_COUNTRIES}.items():
     ENTITIES[_k] = {"name": _en, "name_ar": _ar, "kind": "organization" if _k == "EU" else "country",
@@ -166,6 +151,9 @@ for _k, (_en, _ar, _ef, _af) in _ORGS.items():
     ENTITIES[_k] = {"name": _en, "name_ar": _ar, "kind": "organization", "en": _ef, "ar": _af}
 # "Palestine" lists "the occupation" for headlines; in a speech that names Israel.
 ENTITIES["IL"]["ar"] = [f for f in ENTITIES["IL"]["ar"] if f != "الاحتلال"]
+# The Houthis have their own entry; in a speech they are not "Yemen".
+ENTITIES["YE"]["en"] = [f for f in ENTITIES["YE"]["en"] if "Houthi" not in f]
+ENTITIES["YE"]["ar"] = [f for f in ENTITIES["YE"]["ar"] if "الحوثي" not in f]
 for _k, (_en, _ar, _kind, _ef, _af) in _PLACES.items():
     ENTITIES[_k] = {"name": _en, "name_ar": _ar, "kind": _kind, "en": _ef, "ar": _af}
 # In a speech "Europe" is the continent; the European Union keeps its own names.
@@ -232,10 +220,14 @@ def _find(text: str) -> tuple:
     return tuple(tuple(d.items()) for d in _pick(found))
 
 
-def find(text: str) -> list[dict]:
-    """Every mention of a known country or organization: {start, end, key}."""
+def find(text: str, exclude=()) -> list[dict]:
+    """Every mention of a known country or organization: {start, end, key}.
+
+    `exclude` leaves keys out, e.g. the speaker's own country: "Egypt" in a speech by
+    Egypt's president is the speaker's side, not a country he talks about.
+    """
     # Offsets are Python code points, the same unit the highlighter uses.
-    return [dict(d) for d in _find(text)]
+    return [dict(d) for d in _find(text) if dict(d)["key"] not in exclude]
 
 
 def info(key: str) -> dict:
@@ -243,7 +235,8 @@ def info(key: str) -> dict:
     return {"key": key, "name": e["name"], "name_ar": e["name_ar"], "kind": e["kind"]}
 
 
-def summarize(text: str, tones: dict | None = None, sentences: list[tuple[int, int]] | None = None) -> list[dict]:
+def summarize(text: str, tones: dict | None = None, sentences: list[tuple[int, int]] | None = None,
+              exclude=()) -> list[dict]:
     """Per country/organization: how often it is named, a tone per sentence, the sentences.
 
     `tones` maps (sentence index, key) to a tone set by the AI or a person; other
@@ -254,7 +247,7 @@ def summarize(text: str, tones: dict | None = None, sentences: list[tuple[int, i
     tones = tones or {}
     by_key: dict[str, dict] = {}
     si = 0
-    for m in find(text):
+    for m in find(text, exclude):
         while si < len(sents) - 1 and m["start"] >= sents[si][1]:
             si += 1
         e = by_key.setdefault(m["key"], {**info(m["key"]), "count": 0, "statements": [], "_seen": set()})

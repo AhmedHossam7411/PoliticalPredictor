@@ -64,6 +64,19 @@ saved on both computers keeps the later decision. Commit and push the file to sh
 your examples. It holds sentences from the speeches you reviewed, so keep the
 repository private.
 
+The rest of the team's data is committed in `shared/` too, so a push carries it to
+every computer (after `git pull`, restart the backend to load it):
+
+| File | What it holds |
+|---|---|
+| `shared/custom_stakeholders.json` | Stakeholders added with "Add stakeholder" |
+| `shared/hidden_stakeholders.json` | Built-in stakeholders removed from the panel |
+| `shared/stakeholder_edits.json` | Changes made with "Edit profile" |
+| `shared/stakeholder_speeches.json` | Speeches added to profiles, and statements saved from an analysis |
+
+If `git pull` reports a conflict in one of them, open it and keep both sides' entries;
+until then Cortex shows a message and does not change that file.
+
 ## Arabic input
 
 Paste Arabic text — Modern Standard (فصحى) or Egyptian colloquial (عامية مصرية) — and

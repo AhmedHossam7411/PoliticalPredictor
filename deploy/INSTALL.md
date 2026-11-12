@@ -74,7 +74,7 @@ Egypt; Apache 2.0), running in the `ollama` container on this machine.
 ```
 LLM_BASE_URL=http://ollama:11434/v1
 LLM_MODEL=hf.co/mradermacher/Karnak-6B-v1.0-GGUF:Q4_K_M
-LLM_TIMEOUT=3600
+LLM_TIMEOUT=18000
 ```
 
 Start with the `local-ai` profile (section 5). Then download the model

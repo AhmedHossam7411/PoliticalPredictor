@@ -1,7 +1,15 @@
 <div class="page" [attr.dir]="t().dir">
+  <!-- Floating jump buttons, bottom right: straight to the top or the bottom of the page -->
+  <div class="jump-btns">
+    <button class="jump" (click)="jumpTo('top')" [title]="t().toTop" [attr.aria-label]="t().toTop">▲</button>
+    <button class="jump" (click)="jumpTo('bottom')" [title]="t().toBottom" [attr.aria-label]="t().toBottom">▼</button>
+  </div>
   <!-- Top bar: Cortex at the top left, the Egyptian Youth Diplomacy Program logo centred -->
   <div class="topbar">
-    <div class="brand-name"><span class="brand-en">Cortex</span><span class="brand-rule"></span><span class="brand-ar" lang="ar" dir="rtl">كورتكس</span></div>
+    <div class="brand-name">
+      <img class="brand-logo" src="cortex-logo.png" alt="Cortex">
+      <span class="brand-ar" lang="ar" dir="rtl">كورتكس</span>
+    </div>
     <div class="pl-stack">
       <img class="pl-logo pl-moys" src="moys-mark.png" alt="Ministry of Youth and Sports">
       <img class="pl-logo pl-eydp" src="eydp-program.png" alt="Egyptian Youth Diplomacy Program">
@@ -67,6 +75,20 @@
   @if (page() === 'guide') {
     <section class="card">
       <div class="help-body">
+        <div class="guide-pdf">
+          <p><strong>{{ t().guidePdf }}</strong> {{ t().guidePdfNote }}</p>
+          <a class="pdf-btn" href="guide/Cortex-Guide-EN.pdf" download="Cortex-Guide-EN.pdf">⬇ {{ t().guidePdfEn }}</a>
+          <a class="pdf-btn" href="guide/Cortex-Guide-AR.pdf" download="Cortex-Guide-AR.pdf">⬇ {{ t().guidePdfAr }}</a>
+        </div>
+
+        <h3>{{ t().useHeading }}</h3>
+        @for (sec of t().useSections; track sec.h) {
+          <h4 class="use-h">{{ sec.h }}</h4>
+          <ul class="use-list">
+            @for (it of sec.items; track $index) { <li>{{ it }}</li> }
+          </ul>
+        }
+
         <h3>{{ t().howItWorks }}</h3>
         <p>{{ t().howIntro }}</p>
         <ul class="methods">
@@ -89,8 +111,6 @@
           }
         </div>
 
-        <h3>{{ t().opCodeHeading }}</h3>
-        <p class="muted">{{ t().opCodeIntro }}</p>
       </div>
     </section>
   }
@@ -107,7 +127,37 @@
       </button>
       <input #speechFile type="file" hidden accept=".txt,.pdf,.docx" (change)="uploadSpeech($event)" />
       <button class="ghost" (click)="clearText()">{{ t().clearBtn }}</button>
+      <!-- Who is speaking: their own country is then left out of the places named -->
+      <label class="speaker-pick" [title]="t().speakerPickTip">
+        <span>{{ t().speakerPick }}</span>
+        <input class="speaker-search" type="search" list="speaker-list" dir="auto" autocomplete="off"
+          [placeholder]="t().speakerSearch" [value]="speakerQuery()" (input)="searchSpeaker($any($event.target).value)"
+          [class.chosen]="!!speaker()">
+        <datalist id="speaker-list">
+          @for (s of stakeholders(); track s.id) { <option [value]="s.name">{{ s.role }}</option> }
+        </datalist>
+      </label>
     </div>
+    <!-- Who Karnak gives reactions for; everyone else gets the keyword guess -->
+    <details class="reactor-pick">
+      <summary>{{ t().reactPick.replace('{n}', '' + chosenReactors().length).replace('{max}', '' + maxReactors()) }}</summary>
+      <p class="pdf-note">{{ t().reactPickNote.replace('{max}', '' + maxReactors()) }}
+        <button class="ghost small" (click)="resetReactors()">{{ t().reactReset }}</button></p>
+      @for (g of stakeholderGroups(); track g.key) {
+        @if (g.people.length) {
+          <fieldset class="reactor-group">
+            <legend>{{ t().shGroups[g.key] }}</legend>
+            @for (s of g.people; track s.id) {
+              <label class="reactor-opt" [class.on]="isReactor(s.id)">
+                <input type="checkbox" [checked]="isReactor(s.id)" (change)="toggleReactor(s.id)"
+                  [disabled]="!isReactor(s.id) && chosenReactors().length >= maxReactors()">
+                {{ s.name }}
+              </label>
+            }
+          </fieldset>
+        }
+      }
+    </details>
     <p class="pdf-note">{{ t().uploadHint }}</p>
     @if (uploadedName(); as name) {
       <p class="pdf-note">{{ t().uploadedFrom }} <strong dir="auto">{{ name }}</strong></p>
@@ -275,6 +325,12 @@
   @if (page() === 'analyze') {
   <!-- Split results: left = the text they entered, right = big summary + PDF -->
   @if (analyzed()) {
+    <div class="ai-stop" role="region" [attr.aria-label]="t().stopAi">
+      <button class="stop-ai" (click)="stopAllAi()" [disabled]="!aiBusy() || stoppingAi()">
+        <span aria-hidden="true">■</span> {{ stoppingAi() ? t().stoppingAi : t().stopAi }}
+      </button>
+      <p class="stop-guide">{{ aiStopped() ? t().stopDone : t().stopGuide }}</p>
+    </div>
     <div class="split">
       <section class="card text-panel">
         <h2>{{ t().yourTextHeading }}</h2>
@@ -382,6 +438,7 @@
       <section class="card">
         <h2>{{ t().cx['entHeading'] }} @if (d.entity_summary?.length) { <span class="tag">{{ d.entity_summary!.length }}</span> }</h2>
         <p class="muted">{{ t().cx['entIntro'] }}</p>
+        @for (hm of d.home ?? []; track hm.key) { <p class="cx-memory">{{ t().speakerHome.replace('{name}', entName(hm)) }}</p> }
         @if (d.entity_summary?.length) {
           <div class="dz-chips ent-chips">
             @for (e of d.entity_summary!; track e.key) {
@@ -424,8 +481,13 @@
 
     @if (review(); as rv) {
       <section class="card cx">
-        <h2>{{ t().cx['heading'] }} <span class="tag">{{ rv.sentences.length }}</span>
-          @if (aiJob()?.status === 'running') { <span class="mode-badge ai">… {{ t().cx['fromAi'] }}</span> }</h2>
+        <h2 class="cx-head" role="button" tabindex="0" [attr.aria-expanded]="cxOpen()"
+          (click)="cxOpen.set(!cxOpen())" (keydown.enter)="cxOpen.set(!cxOpen())" [title]="cxOpen() ? t().cx['collapse'] : t().cx['expand']">
+          <span class="cx-caret" aria-hidden="true">{{ cxOpen() ? '▾' : '▸' }}</span>
+          {{ t().cx['heading'] }} <span class="tag">{{ rv.sentences.length }}</span>
+          @if (aiJob()?.status === 'running') { <span class="mode-badge ai">… {{ t().cx['fromAi'] }}</span> }
+          @if (!cxOpen()) { <span class="cx-closed-note">{{ t().cx['expand'] }}</span> }</h2>
+        @if (cxOpen()) {
         <p class="muted">{{ t().cx['intro'] }}</p>
         @if (aiStatus(); as st) {
           <p class="cx-status" [class.running]="aiJob()?.status === 'running'">{{ st }}
@@ -444,14 +506,24 @@
             <button class="filter-chip" [class.active]="cxFilter() === 'names'" (click)="cxFilter.set('names')">{{ t().cx['filterNames'] }}</button>
           </div>
           <p class="pdf-note">{{ t().cx['howTo'] }}</p>
+          <p class="cx-rows-tools">
+            <button class="ghost small" (click)="openAllRows()">{{ t().cx['openAll'] }}</button>
+            <button class="ghost small" (click)="closeAllRows()">{{ t().cx['closeAll'] }}</button>
+          </p>
           <ol class="cx-list">
-            @for (s of cxList().slice(0, cxShown()); track s.i) {
+            @for (s of cxList().slice(0, cxShown()); track s.i; let n = $index) {
               <li class="cx-row" [class.off]="sentenceIgnored(s)" [class.changed]="changedSentences().has(s.i)">
+                <button class="cx-num" [class.open]="rowOpen(s.i)" (click)="toggleRow(s.i)" [attr.aria-expanded]="rowOpen(s.i)">
+                  <span class="cx-n">{{ n + 1 }}</span>
+                  @if (!rowOpen(s.i)) { <span class="cx-preview" dir="auto">{{ s.text }}</span> }
+                  <span class="cx-row-meta">{{ s.hits.length }} {{ t().cx['wordsMarked'] }}@if (s.entities.length) { · {{ s.entities.length }} {{ t().cx['namesMarked'] }} }</span>
+                </button>
+                @if (rowOpen(s.i)) {
                 @if (sentenceReused(s)) { <span class="tag cx-ai saved">{{ t().cx['fromSaved'] }}</span> }
                 @else if (sentenceByAi(s)) { <span class="tag cx-ai">{{ t().cx['fromAi'] }}</span> }
                 @for (h of s.hits; track h.id) {
-                  <div class="cx-copy" [class.right]="verdict(h) === 'right'" [class.wrong]="verdict(h) === 'wrong'">
-                    <p class="cx-text" dir="auto" (mouseup)="pickPart(s, $event)">@for (pc of cxPieces().get(s.i + ':' + h.id) ?? []; track $index) {@if (pc.hit; as w) {<mark class="cx-word hl" [style]="hitStyle(w)" [title]="hitTitle(w)">{{ pc.text }}</mark>} @else if (pc.ent) {<span class="ent">{{ pc.text }}</span>} @else {{{ pc.text }}}}</p>
+                  <div class="cx-copy" [class.right]="verdict(h) === 'right'" [class.wrong]="verdict(h) === 'wrong'" [class.moved]="verdict(h) === 'moved'">
+                    <p class="cx-text" dir="auto" (mouseup)="pickPart(s, $event, h.id)">@for (pc of cxPieces().get(s.i + ':' + h.id) ?? []; track $index) {@if (pc.hit; as w) {<mark class="cx-word hl" [style]="hitStyle(w)" [title]="hitTitle(w)">{{ pc.text }}</mark>} @else if (pc.ent) {<span class="ent">{{ pc.text }}</span>} @else {{{ pc.text }}}}</p>
                     <div class="cx-verdict">
                       <span class="cx-initial"><span class="muted">{{ t().cx['initial'] }}</span> <strong>{{ initialOf(h) }}</strong>
                         @if (!h.counted) { <span class="muted">({{ t().cx['notCounted'] }})</span> }</span>
@@ -459,21 +531,26 @@
                         [title]="h.counted ? t().cx['rightTip'] : t().cx['rightSkipTip']">✓ {{ t().cx['right'] }}</button>
                       <button class="tick wrong" [class.on]="verdict(h) === 'wrong'" (click)="markWrong(s, h)"
                         [title]="h.counted ? t().cx['wrongTip'] : t().cx['wrongSkipTip']">✗ {{ h.counted ? t().cx['wrong'] : t().cx['wrongSkip'] }}</button>
+                      @if (movedTo(h); as m) {
+                        <span class="cx-moved">↪ {{ codeName(m) }}
+                          <button class="sh-x" (click)="unmoveHit(s, h)" [title]="t().cx['moveUndo']" [attr.aria-label]="t().cx['moveUndo']">×</button></span>
+                      } @else {
+                        <select #mv class="cx-select cx-move" [title]="t().cx['moveTip']" (change)="moveHit(s, h, mv.value); mv.value = ''">
+                          <option value="">↪ {{ t().cx['move'] }}</option>
+                          @for (c of moveCodes(h); track c) { <option [value]="c">{{ c }} · {{ t().cxCodes[c] }}</option> }
+                        </select>
+                      }
                     </div>
+                    @if (partSel()?.si === s.i && partSel()?.line === h.id) {
+                      <ng-container *ngTemplateOutlet="partBar; context: { $implicit: s }"></ng-container>
+                    }
                   </div>
                 } @empty {
                   <div class="cx-copy">
-                    <p class="cx-text" dir="auto" (mouseup)="pickPart(s, $event)">@for (pc of cxPieces().get(s.i + ':-') ?? []; track $index) {@if (pc.ent) {<span class="ent">{{ pc.text }}</span>} @else {{{ pc.text }}}}</p>
-                  </div>
-                }
-                @if (partSel()?.si === s.i) {
-                  <div class="cx-part">
-                    <span>{{ t().cx['partSelected'] }} <q dir="auto">{{ partSel()!.text }}</q></span>
-                    <select #pp class="cx-select" (change)="addPart(s, pp.value)">
-                      <option value="">{{ t().cx['partAdd'] }}</option>
-                      @for (c of cxCodes; track c) { <option [value]="c">{{ c }} · {{ t().cxCodes[c] }}</option> }
-                    </select>
-                    <button class="ghost cx-btn" (click)="partSel.set(null)">{{ t().cx['cancel'] }}</button>
+                    <p class="cx-text" dir="auto" (mouseup)="pickPart(s, $event, -1)">@for (pc of cxPieces().get(s.i + ':-') ?? []; track $index) {@if (pc.ent) {<span class="ent">{{ pc.text }}</span>} @else {{{ pc.text }}}}</p>
+                    @if (partSel()?.si === s.i && partSel()?.line === -1) {
+                      <ng-container *ngTemplateOutlet="partBar; context: { $implicit: s }"></ng-container>
+                    }
                   </div>
                 }
                 <div class="cx-tools">
@@ -508,6 +585,7 @@
                     </span>
                   }
                 </div>
+                }
               </li>
             }
           </ol>
@@ -519,6 +597,7 @@
             @if (cxMsg()) { <span class="ok-msg">{{ cxMsg() }}</span> }
           </p>
         } @else { <p class="muted">{{ t().cx['none'] }}</p> }
+        }
       </section>
     }
   }
@@ -538,6 +617,9 @@
         @if (st.calibrated) { <span class="tag groq">{{ t().calibratedTag }}</span> }
       </h2>
       <p class="muted">{{ t().stakeIntro }}</p>
+      @if (st.method === 'llm' && guessCount()) {
+        <p class="muted">{{ t().reactSplit.replace('{ai}', '' + (st.reactions.length - guessCount())).replace('{guess}', '' + guessCount()) }}</p>
+      }
       @if (excerptNote(st.excerpted); as note) { <p class="fallback-note">{{ note }}</p> }
       @else if (partsNote(st.read_in_parts); as note) { <p class="muted">✓ {{ note }}</p> }
       @if (st.method === 'heuristic') {
@@ -579,7 +661,8 @@
               <button class="stake-name sh-name" (click)="openDossier(r.id, who(r).name)" [title]="t().dzOpen">{{ who(r).name }}</button>
               <span class="stance" [class]="stanceClass(r.stance)">{{ stanceLabel(r.stance) }}</span>
             </div>
-            <p class="stake-role">{{ who(r).role }}</p>
+            <p class="stake-role">{{ who(r).role }}
+              @if (r.ai === false && st.method === 'llm') { <span class="guess-badge" [title]="t().reactGuessTip">{{ t().reactGuess }}</span> }</p>
             <div class="conf-bar"><div class="conf-fill" [style.width.%]="r.confidence"></div></div>
             <p class="stake-reason">{{ r.reasoning }}</p>
             <p class="stake-resp"><strong>{{ t().likelyResponse }}</strong> {{ r.response }}</p>
@@ -911,6 +994,17 @@
       </div>
     </div>
   }
+
+  <ng-template #partBar let-s>
+    <div class="cx-part">
+      <span>{{ t().cx['partSelected'] }} <q dir="auto">{{ partSel()?.text }}</q></span>
+      <select #pp class="cx-select" (change)="addPart(s, pp.value)">
+        <option value="">{{ t().cx['partAdd'] }}</option>
+        @for (c of cxCodes; track c) { <option [value]="c">{{ c }} · {{ t().cxCodes[c] }}</option> }
+      </select>
+      <button class="ghost cx-btn" (click)="partSel.set(null)">{{ t().cx['cancel'] }}</button>
+    </div>
+  </ng-template>
 
   <ng-template #newsList let-items>
     @if (items.length) {
