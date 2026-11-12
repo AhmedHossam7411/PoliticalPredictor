@@ -26,6 +26,9 @@ from . import llm
 from . import stakeholders as stk
 from . import auth
 from . import dossier
+from . import context as ctx
+from . import entities
+from . import labels_sync
 from .extract import ExtractError, MAX_BYTES, extract_text
 from .highlight import scorer_spans
 from .speeches import split_speeches
@@ -152,8 +155,82 @@ def mock_speeches(user: str = Depends(auth.require_auth)) -> dict:
 @app.post("/analyze")
 def analyze_endpoint(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     norm = _norm_for(req.norming_corpus)
-    # `spans`: where each counted word sits in the text, for highlighting.
-    return {**analyze_with_bands(req.text, norm), "spans": scorer_spans(req.text)}
+    # `spans`: where each counted word sits in the text, for highlighting;
+    # `entities`: where countries/organizations are named, and what is said of them.
+    return {**analyze_with_bands(req.text, norm), "spans": scorer_spans(req.text),
+            "entities": entities.find(req.text), "entity_summary": entities.summarize(req.text)}
+
+
+# --- Context check ---------------------------------------------------------
+class ContextRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    decisions: dict | None = None
+    norming_corpus: list[str] | None = None
+    source: str = "person"
+
+
+@app.post("/context/review")
+def context_review(req: ContextRequest, user: str = Depends(auth.require_auth)) -> dict:
+    """Every sentence with a marked word or a named country/organization."""
+    return ctx.review(req.text)
+
+
+@app.post("/context/rescore")
+def context_rescore(req: ContextRequest, user: str = Depends(auth.require_auth)) -> dict:
+    """The word-scorer result again, with the context decisions applied."""
+    out = ctx.rescore(req.text, req.decisions, _norm_for(req.norming_corpus))
+    return {**out, "spans": scorer_spans(req.text), "entities": entities.find(req.text),
+            "entity_summary": entities.summarize(req.text, ctx.tone_map(req.decisions))}
+
+
+@app.post("/context/ai")
+def context_ai_start(req: ContextRequest, user: str = Depends(auth.require_auth)) -> dict:
+    """Start Karnak's sentence-by-sentence context check; poll GET /context/ai/{job}."""
+    # The saved examples go with it: reused for sentences decided before, shown to Karnak for the rest.
+    # Examples that arrived with a `git pull` are read in first.
+    labels_sync.pull_in(stk._store)
+    return {"job": ctx.start_ai(req.text, stk._store.labels())}
+
+
+@app.get("/context/ai/{job_id}")
+def context_ai_status(job_id: str, user: str = Depends(auth.require_auth)) -> dict:
+    job = ctx.job_status(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No such job.")
+    return job
+
+
+@app.delete("/context/ai/{job_id}")
+def context_ai_cancel(job_id: str, user: str = Depends(auth.require_auth)) -> dict:
+    return {"cancelled": ctx.cancel(job_id)}
+
+
+@app.post("/context/labels")
+def context_save_labels(req: ContextRequest, user: str = Depends(auth.require_auth)) -> dict:
+    """Keep the reviewed sentences as labelled examples, for training a model later."""
+    records = ctx.label_records(req.text, req.decisions or {}, req.source[:20])
+    labels_sync.pull_in(stk._store)
+    stk._store.save_labels(records)
+    # Mirror to shared/context_labels.jsonl, which travels with the repository.
+    total = labels_sync.export(stk._store)
+    return {"saved": len(records), "total": total}
+
+
+@app.get("/context/labels")
+def context_labels(user: str = Depends(auth.require_auth)) -> dict:
+    """Every labelled sentence saved so far (download for training)."""
+    labels_sync.pull_in(stk._store)
+    rows = stk._store.labels()
+    return {"total": len(rows), "labels": rows, "sync": labels_sync.last_report}
+
+
+# On start: take in examples that came with the repository, then make sure the shared
+# file holds this computer's examples too (so they go out with the next push).
+try:
+    labels_sync.pull_in(stk._store, force=True)
+    labels_sync.export(stk._store)
+except Exception as _exc:  # never stop the server over the shared file
+    print(f"[labels] could not sync shared/context_labels.jsonl: {_exc}")
 
 
 @app.post("/extract-text")
@@ -222,12 +299,23 @@ def stakeholder_dossier(sid: str, language: str = "en",
     if person is None:
         raise HTTPException(status_code=404, detail="No such stakeholder.")
     out = dossier.build(person, language="ar" if language == "ar" else "en")
-    return {**out, "person": stk._public(person), "word_profile": stk.word_profile(sid)}
+    return {**out, "person": stk._public(person), "word_profile": stk.word_profile(sid),
+            "entities": stk.entity_profile(sid)}
+
+
+@app.get("/stakeholders/{sid}/entities/{key}")
+def stakeholder_entity(sid: str, key: str, user: str = Depends(auth.require_auth)) -> dict:
+    """Everything this person said about one country/organization in their speeches on file."""
+    found = next((e for e in stk.entity_profile(sid) if e["key"] == key), None)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Not named in this person's speeches.")
+    return found
 
 
 class NewSpeech(BaseModel):
     text: str
     title: str = ""
+    context: dict | None = None
 
 
 @app.post("/stakeholders/{sid}/speeches")
@@ -236,7 +324,7 @@ def add_stakeholder_speech(sid: str, req: NewSpeech, user: str = Depends(auth.re
     if not any(s["id"] == sid for s in stk.STAKEHOLDERS):
         raise HTTPException(status_code=404, detail="No such stakeholder.")
     try:
-        return stk.add_speech(sid, req.text, req.title)
+        return stk.add_speech(sid, req.text, req.title, req.context)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -269,8 +357,13 @@ def restore_stakeholder_endpoint(sid: str, user: str = Depends(auth.require_auth
 
 @app.post("/analyze/stakeholders")
 def analyze_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
-    """Predict how each stakeholder reacts to the speech / policy text."""
-    return stk.react(req.text, language=req.language)
+    """Predict how each stakeholder reacts to the speech / policy text, with what
+    each of them thinks of the countries and organizations the text names."""
+    out = stk.react(req.text, language=req.language)
+    keys = [e["key"] for e in entities.summarize(req.text)]
+    for r in out.get("reactions", []):
+        r["views"] = stk.views_on(r["id"], keys) if keys else []
+    return out
 
 
 @app.post("/analyze/llm")

@@ -23,16 +23,56 @@ from pathlib import Path
 _JSON_PATH = Path(__file__).resolve().parent / "custom_stakeholders.json"
 _HIDDEN_PATH = Path(__file__).resolve().parent / "hidden_stakeholders.json"
 _SPEECHES_PATH = Path(__file__).resolve().parent / "stakeholder_speeches.json"
+# Sentences someone (or the AI) reviewed in the context check: examples Karnak follows.
+# Kept in a SQLite database; the old JSON file is moved into it once.
+_LABELS_DB = Path(__file__).resolve().parent / "cortex.db"
+_LABELS_PATH = Path(__file__).resolve().parent / "context_labels.json"
+
+
+class SqliteLabels:
+    """The context-check examples in a local SQLite database (one row per sentence)."""
+
+    def __init__(self, path: Path = _LABELS_DB, legacy: Path = _LABELS_PATH):
+        import sqlite3
+        self.path = path
+        self._sqlite = sqlite3
+        with self._connect() as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS context_labels (
+                            id TEXT PRIMARY KEY, data TEXT NOT NULL, updated TEXT NOT NULL DEFAULT '')""")
+        if legacy.exists():
+            try:
+                old = json.loads(legacy.read_text(encoding="utf-8"))
+                self.save_labels(list(old.values()) if isinstance(old, dict) else old)
+                legacy.rename(legacy.with_suffix(".json.moved-to-db"))
+            except (OSError, json.JSONDecodeError, AttributeError, KeyError):
+                pass
+
+    def _connect(self):
+        return self._sqlite.connect(self.path, timeout=10)
+
+    def labels(self) -> list[dict]:
+        with self._connect() as db:
+            return [json.loads(r[0]) for r in db.execute("SELECT data FROM context_labels ORDER BY updated, id")]
+
+    def save_labels(self, records: list[dict]) -> None:
+        with self._connect() as db:
+            db.executemany(
+                "INSERT INTO context_labels (id, data, updated) VALUES (?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated = excluded.updated",
+                [(r["id"], json.dumps(r, ensure_ascii=False), r.get("updated") or r.get("saved") or "")
+                 for r in records])
 
 
 class JsonStore:
     """Dev store: a single JSON file on disk."""
 
     def __init__(self, path: Path = _JSON_PATH, hidden_path: Path = _HIDDEN_PATH,
-                 speeches_path: Path = _SPEECHES_PATH):
+                 speeches_path: Path = _SPEECHES_PATH, labels_db: Path = _LABELS_DB):
         self.path = path
         self.hidden_path = hidden_path
         self.speeches_path = speeches_path
+        # Only the real database takes in the old JSON file (not a test's temporary one).
+        self._labels = SqliteLabels(labels_db, _LABELS_PATH if labels_db == _LABELS_DB else labels_db.with_suffix(".none"))
 
     def list(self) -> list[dict]:
         try:
@@ -88,6 +128,13 @@ class JsonStore:
         self.speeches_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return True
 
+    # Labelled sentences from the context check; a sentence saved again replaces itself.
+    def labels(self) -> list[dict]:
+        return self._labels.labels()
+
+    def save_labels(self, records: list[dict]) -> None:
+        self._labels.save_labels(records)
+
 
 class PgStore:
     """Production store: one Postgres row per stakeholder (id, owner, data jsonb)."""
@@ -125,6 +172,15 @@ class PgStore:
                     owner       text NOT NULL DEFAULT 'default',
                     data        jsonb NOT NULL,
                     created_at  timestamptz NOT NULL DEFAULT now(),
+                    PRIMARY KEY (id, owner)
+                )"""
+            )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS context_labels (
+                    id          text NOT NULL,
+                    owner       text NOT NULL DEFAULT 'default',
+                    data        jsonb NOT NULL,
+                    updated_at  timestamptz NOT NULL DEFAULT now(),
                     PRIMARY KEY (id, owner)
                 )"""
             )
@@ -183,6 +239,21 @@ class PgStore:
                                (speech_id, sid, self.owner))
             conn.commit()
             return cur.rowcount > 0
+
+    def labels(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT data FROM context_labels WHERE owner = %s ORDER BY updated_at",
+                                (self.owner,)).fetchall()
+        return [r[0] for r in rows]
+
+    def save_labels(self, records: list[dict]) -> None:
+        from psycopg.types.json import Jsonb
+        with self._connect() as conn:
+            for r in records:
+                conn.execute("INSERT INTO context_labels (id, owner, data) VALUES (%s, %s, %s) "
+                             "ON CONFLICT (id, owner) DO UPDATE SET data = EXCLUDED.data, updated_at = now()",
+                             (r["id"], self.owner, Jsonb(r)))
+            conn.commit()
 
     def set_hidden(self, sid: str, hidden: bool) -> None:
         sql = ("INSERT INTO hidden_stakeholders (id, owner) VALUES (%s, %s) ON CONFLICT DO NOTHING"

@@ -132,12 +132,18 @@ def analyze_with_bands(text: str, norm: dict | None = None) -> dict:
     `hits` is the number of list words found; see hits_needed.
     """
     result = analyze(text)
+    band_lta(result["lta"], norm)
+    return result
+
+
+def band_lta(lta: dict, norm: dict | None = None) -> dict:
+    """Add weighting, confidence and bands to raw LTA metrics (in place)."""
     if norm is None:
-        norm = default_norm(result["input"]["language"])
-    tokens = result["lta"]["tokens"]
+        norm = default_norm(lta["language"])
+    tokens = lta["tokens"]
     needed = hits_needed(tokens)
     for t in LTA_TRAITS:
-        tr = result["lta"]["traits"][t]
+        tr = lta["traits"][t]
         mean, std = norm[t]["mean"], norm[t]["std"]
         tr["adjusted"], tr["weight"] = weigh(tr, tokens, mean)
         tr["confidence"] = confidence(tr["weight"])
@@ -153,9 +159,47 @@ def analyze_with_bands(text: str, norm: dict | None = None) -> dict:
             tr["band"] = band(tr["adjusted"], mean, std)
             if tr["band"] == "High" and tr["hits"] < needed:
                 tr["band"] = "Moderate"
-    result["lta"]["weighting"] = {"prior_tokens": PRIOR_TOKENS, "prior_hits": PRIOR_HITS,
-                                 "hits_needed": needed}
-    return result
+    lta["weighting"] = {"prior_tokens": PRIOR_TOKENS, "prior_hits": PRIOR_HITS,
+                        "hits_needed": needed}
+    return lta
+
+
+# Which raw count each highlight label feeds.
+_LABEL_FIELD = {"CC:high": ("CC", "high"), "CC:low": ("CC", "low"),
+                "SC:high": ("SC", "high"), "SC:low": ("SC", "low"),
+                "TASK:high": ("TASK", "task"), "TASK:low": ("TASK", "group"),
+                **{f"{t}:high": (t, "count") for t in ("BACE", "PWR", "DIS", "IGB")}}
+
+
+def recount(lta: dict, deltas: dict[str, int]) -> dict:
+    """Raw LTA metrics with hits added or taken away per label, values recomputed (in place)."""
+    tokens = lta["tokens"] or 1
+    for label, d in deltas.items():
+        if label in _LABEL_FIELD and d:
+            trait, field = _LABEL_FIELD[label]
+            tr = lta["traits"][trait]
+            tr[field] = max(0, tr[field] + d)
+    for t in LTA_TRAITS:
+        tr = lta["traits"][t]
+        if tr["kind"] == "ratio":
+            first, total = _ratio_counts(tr)
+            tr["value"] = first / total if total else 0.5
+        else:
+            tr["value"] = 1000.0 * tr["count"] / tokens
+    return lta
+
+
+def merge_lta(parts: list[dict]) -> dict:
+    """Raw LTA metrics of several texts added together, as if they were one text."""
+    out = {"tokens": sum(p["tokens"] for p in parts), "language": parts[0]["language"], "traits": {}}
+    for t in LTA_TRAITS:
+        first = parts[0]["traits"][t]
+        tr = {"kind": first["kind"]}
+        for field in ("high", "low", "task", "group", "count"):
+            if field in first:
+                tr[field] = sum(p["traits"][t][field] for p in parts)
+        out["traits"][t] = tr
+    return recount(out, {})
 
 
 _DEFAULT_NORMS: dict[str, dict] = {}

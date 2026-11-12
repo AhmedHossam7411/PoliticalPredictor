@@ -9,7 +9,7 @@
     <div class="login-wrap">
       <div class="login-card">
         <div class="header-row">
-          <h1>PoliticalPredictor</h1>
+          <h1 class="brand-name"><span class="brand-en">Cortex</span><span class="brand-ar" lang="ar" dir="rtl">كورتكس</span></h1>
           <button class="lang-btn" (click)="toggleLang()">🌐 {{ t().switchTo }}</button>
         </div>
 
@@ -50,7 +50,7 @@
 
   <header>
     <div class="header-row">
-      <h1>PoliticalPredictor</h1>
+      <h1 class="brand-name"><span class="brand-en">Cortex</span><span class="brand-ar" lang="ar" dir="rtl">كورتكس</span></h1>
       <div class="header-actions">
         <button class="lang-btn" (click)="toggleLang()">🌐 {{ t().switchTo }}</button>
         <button class="lang-btn" (click)="logout()">{{ t().logout }}</button>
@@ -280,11 +280,17 @@
                 <span class="hl" [style]="l.style">{{ l.name }}</span> <span class="hl-count">{{ l.count }}</span>
               </button>
             }
+            @if (dict()?.entities?.length) {
+              <button type="button" class="hl-chip" [class.off]="hiddenLists().has('ENT')" [attr.aria-pressed]="!hiddenLists().has('ENT')"
+                (click)="toggleList('ENT')">
+                <span class="ent">{{ t().cx['entLegend'] }}</span> <span class="hl-count">{{ dict()!.entities!.length }}</span>
+              </button>
+            }
           </div>
         }
         @if (analyzedSpeech(); as who) { <p class="speech-found"><strong>{{ t().speakerLabel }}</strong> {{ who }}</p> }
         @if (analyzedMixed()) { <p class="fallback-note">⚠ {{ t().mixedWarning }}</p> }
-        <div class="submitted" dir="auto">@for (p of highlightPieces(); track $index) {@if (p.style) {<span class="hl" [style]="p.style" [title]="p.title">{{ p.text }}</span>} @else {{{ p.text }}}}</div>
+        <div class="submitted" dir="auto">@for (p of highlightPieces(); track $index) {@if (p.style || p.ent) {<span [class.hl]="!!p.style" [class.ent]="p.ent" [style]="p.style" [title]="p.title">{{ p.text }}</span>} @else {{{ p.text }}}}</div>
       </section>
 
       <section class="card summary-panel">
@@ -293,6 +299,8 @@
           <h2>{{ t().pdfWordHeading }} <span class="mode-badge word">{{ t().wordScorerBadge }}</span></h2>
           <p class="pdf-note">{{ t().wordBlockDesc }}</p>
           @if (dict(); as d) {
+          @if (aiJob()?.status === 'running') { <p class="cx-status running">{{ aiStatus() }}</p> }
+          @if (contextNote(); as note) { <p class="cx-applied">✓ {{ note }}</p> }
           @if (wordSummary()) { <p class="summary-text">{{ wordSummary() }}</p> }
           <p class="pdf-note">{{ t().textLengthLabel }}: {{ d.lta.tokens }}</p>
           <div class="mini-traits">
@@ -341,6 +349,8 @@
               </div>
             }
           </div>
+          } @else if (aiQueued()) {
+            <p class="muted">{{ t().cx['waitCtx'] }}</p>
           } @else if (llmLoading()) {
             <p class="muted">{{ t().summaryWait }}</p>
           } @else {
@@ -357,13 +367,150 @@
         </button>
       </section>
     </div>
+
+    @if (dict(); as d) {
+      <section class="card">
+        <h2>{{ t().cx['entHeading'] }} @if (d.entity_summary?.length) { <span class="tag">{{ d.entity_summary!.length }}</span> }</h2>
+        <p class="muted">{{ t().cx['entIntro'] }}</p>
+        @if (d.entity_summary?.length) {
+          <div class="dz-chips ent-chips">
+            @for (e of d.entity_summary!; track e.key) {
+              <button class="ent-chip" [class]="'ent-chip ' + e.tone" [class.open]="entOpen() === e.key"
+                (click)="entOpen.set(entOpen() === e.key ? '' : e.key)">
+                {{ entName(e) }} <span class="ent-meta">{{ t().tones[e.tone] }} · {{ entTimes(e.count) }}</span></button>
+            }
+          </div>
+          @for (e of d.entity_summary!; track e.key) {
+            @if (entOpen() === e.key) {
+              <ul class="ent-statements">
+                @for (st of e.statements; track st.sentence) {
+                  <li>
+                    <span class="mz-tone" [class]="'mz-tone ' + st.tone">{{ t().tones[st.tone] }}</span>
+                    <span class="ent-src">{{ toneSource(st.source) }}</span>
+                    <q dir="auto">{{ st.text }}</q>
+                    <span class="tone-set">
+                      @for (tn of ['positive', 'negative', 'neutral']; track tn) {
+                        <button class="tone-btn" [class]="'tone-btn ' + tn" [class.on]="st.tone === tn"
+                          (click)="setTone(st.sentence, e.key, tn)">{{ t().tones[tn] }}</button>
+                      }
+                    </span>
+                  </li>
+                }
+              </ul>
+            }
+          }
+        } @else { <p class="muted">{{ t().cx['entNone'] }}</p> }
+        <div class="save-file">
+          <span>{{ t().cx['saveTo'] }}</span>
+          <select [ngModel]="saveSid()" (ngModelChange)="saveSid.set($event)">
+            <option value="">{{ t().cx['savePick'] }}</option>
+            @for (s of stakeholders(); track s.id) { <option [value]="s.id">{{ s.name }}</option> }
+          </select>
+          <button (click)="saveToFile()" [disabled]="!saveSid() || saveBusy()">{{ saveBusy() ? t().saving : t().cx['saveBtn'] }}</button>
+          @if (saveMsg()) { <span class="ok-msg">{{ saveMsg() }}</span> }
+        </div>
+      </section>
+    }
+
+    @if (review(); as rv) {
+      <section class="card cx">
+        <h2>{{ t().cx['heading'] }} <span class="tag">{{ rv.sentences.length }}</span>
+          @if (aiJob()?.status === 'running') { <span class="mode-badge ai">… {{ t().cx['fromAi'] }}</span> }</h2>
+        <p class="muted">{{ t().cx['intro'] }}</p>
+        @if (aiStatus(); as st) {
+          <p class="cx-status" [class.running]="aiJob()?.status === 'running'">{{ st }}
+            @if (aiJob()?.status === 'running') {
+              <button class="ghost" (click)="stopAi(true)">{{ t().cx['aiStop'] }}</button>
+            } @else if (meta()?.llm_available !== false && rv.sentences.length) {
+              <button class="ghost" (click)="startAi()">{{ aiJob() ? t().cx['aiAgain'] : t().cx['aiStart'] }}</button>
+            }
+          </p>
+        }
+        @if (memoryNote(); as note) { <p class="cx-memory">↺ {{ note }}</p> }
+        @if (rv.sentences.length) {
+          <div class="stake-filters">
+            <button class="filter-chip" [class.active]="cxFilter() === 'all'" (click)="cxFilter.set('all')">{{ t().cx['filterAll'] }} ({{ rv.sentences.length }})</button>
+            <button class="filter-chip" [class.active]="cxFilter() === 'changed'" (click)="cxFilter.set('changed')">{{ t().cx['filterChanged'] }} ({{ changedSentences().size }})</button>
+            <button class="filter-chip" [class.active]="cxFilter() === 'names'" (click)="cxFilter.set('names')">{{ t().cx['filterNames'] }}</button>
+          </div>
+          <p class="pdf-note">{{ t().cx['howTo'] }}</p>
+          <ol class="cx-list">
+            @for (s of cxList().slice(0, cxShown()); track s.i) {
+              <li class="cx-row" [class.off]="sentenceIgnored(s)" [class.changed]="changedSentences().has(s.i)">
+                @if (sentenceReused(s)) { <span class="tag cx-ai saved">{{ t().cx['fromSaved'] }}</span> }
+                @else if (sentenceByAi(s)) { <span class="tag cx-ai">{{ t().cx['fromAi'] }}</span> }
+                @for (h of s.hits; track h.id) {
+                  <div class="cx-copy" [class.right]="verdict(h) === 'right'" [class.wrong]="verdict(h) === 'wrong'">
+                    <p class="cx-text" dir="auto" (mouseup)="pickPart(s, $event)">@for (pc of cxPieces().get(s.i + ':' + h.id) ?? []; track $index) {@if (pc.hit; as w) {<mark class="cx-word hl" [style]="hitStyle(w)" [title]="hitTitle(w)">{{ pc.text }}</mark>} @else if (pc.ent) {<span class="ent">{{ pc.text }}</span>} @else {{{ pc.text }}}}</p>
+                    <div class="cx-verdict">
+                      <span class="cx-initial"><span class="muted">{{ t().cx['initial'] }}</span> <strong>{{ initialOf(h) }}</strong>
+                        @if (!h.counted) { <span class="muted">({{ t().cx['notCounted'] }})</span> }</span>
+                      <button class="tick right" [class.on]="verdict(h) === 'right'" (click)="markRight(s, h)"
+                        [title]="h.counted ? t().cx['rightTip'] : t().cx['rightSkipTip']">✓ {{ t().cx['right'] }}</button>
+                      <button class="tick wrong" [class.on]="verdict(h) === 'wrong'" (click)="markWrong(s, h)"
+                        [title]="h.counted ? t().cx['wrongTip'] : t().cx['wrongSkipTip']">✗ {{ h.counted ? t().cx['wrong'] : t().cx['wrongSkip'] }}</button>
+                    </div>
+                  </div>
+                } @empty {
+                  <div class="cx-copy">
+                    <p class="cx-text" dir="auto" (mouseup)="pickPart(s, $event)">@for (pc of cxPieces().get(s.i + ':-') ?? []; track $index) {@if (pc.ent) {<span class="ent">{{ pc.text }}</span>} @else {{{ pc.text }}}}</p>
+                  </div>
+                }
+                @if (partSel()?.si === s.i) {
+                  <div class="cx-part">
+                    <span>{{ t().cx['partSelected'] }} <q dir="auto">{{ partSel()!.text }}</q></span>
+                    <select #pp class="cx-select" (change)="addPart(s, pp.value)">
+                      <option value="">{{ t().cx['partAdd'] }}</option>
+                      @for (c of cxCodes; track c) { <option [value]="c">{{ c }} · {{ t().cxCodes[c] }}</option> }
+                    </select>
+                    <button class="ghost cx-btn" (click)="partSel.set(null)">{{ t().cx['cancel'] }}</button>
+                  </div>
+                }
+                <div class="cx-tools">
+                  @if (s.hits.length) {
+                    <button class="ghost cx-btn" (click)="toggleSentence(s)">{{ sentenceIgnored(s) ? t().cx['keepSentence'] : t().cx['ignoreSentence'] }}</button>
+                  }
+                  @for (a of addsOf(s); track a.label) {
+                    <span class="cx-add">{{ t().cx['wholeTag'] }} → {{ codeName(a.label) }}
+                      <button class="sh-x" (click)="removeAdd(s, a.label)" [attr.aria-label]="t().removeStakeholder">×</button></span>
+                  }
+                  @for (a of partsOf(s); track $index) {
+                    <span class="cx-add part"><q dir="auto">{{ a.text }}</q> → {{ codeName(a.label) }}
+                      <button class="sh-x" (click)="removePart(s, a)" [attr.aria-label]="t().removeStakeholder">×</button></span>
+                  }
+                  <select #pick class="cx-select" (change)="addTrait(s, pick.value); pick.value = ''">
+                    <option value="">{{ t().cx['addTrait'] }}</option>
+                    @for (c of cxCodes; track c) { <option [value]="c">{{ c }} · {{ t().cxCodes[c] }}</option> }
+                  </select>
+                  @for (e of s.entities; track e.key) {
+                    <span class="tone-set">{{ t().cx['toneFor'].replace('{name}', entName(e)) }}
+                      @for (tn of ['positive', 'negative', 'neutral']; track tn) {
+                        <button class="tone-btn" [class]="'tone-btn ' + tn" [class.on]="toneAt(s.i, e.key, e.tone) === tn"
+                          (click)="setTone(s.i, e.key, tn)">{{ t().tones[tn] }}</button>
+                      }
+                    </span>
+                  }
+                </div>
+              </li>
+            }
+          </ol>
+          @if (cxList().length > cxShown()) {
+            <button class="ghost" (click)="cxShown.set(cxShown() + 20)">{{ t().cx['more'].replace('{n}', '' + Math.min(20, cxList().length - cxShown())) }}</button>
+          }
+          <p class="cx-save">
+            <button (click)="saveLabels()">{{ t().cx['saveLabels'] }}</button>
+            @if (cxMsg()) { <span class="ok-msg">{{ cxMsg() }}</span> }
+          </p>
+        } @else { <p class="muted">{{ t().cx['none'] }}</p> }
+      </section>
+    }
   }
 
   <!-- Stakeholder reactions -->
-  @if (stakeLoading() && !stake()) {
+  @if ((stakeLoading() || aiQueued()) && !stake()) {
     <section class="card">
       <h2>{{ t().stakeHeading }}</h2>
-      <p class="muted">{{ t().stakeWait }}</p>
+      <p class="muted">{{ aiQueued() ? t().cx['waitCtx'] : t().stakeWait }}</p>
     </section>
   }
   @if (stake(); as st) {
@@ -419,6 +566,19 @@
             <div class="conf-bar"><div class="conf-fill" [style.width.%]="r.confidence"></div></div>
             <p class="stake-reason">{{ r.reasoning }}</p>
             <p class="stake-resp"><strong>{{ t().likelyResponse }}</strong> {{ r.response }}</p>
+            @if (r.views?.length) {
+              <div class="views">
+                <span class="views-label">{{ t().cx['viewsHeading'] }}</span>
+                @for (v of r.views!; track v.key) {
+                  @if (v.source === 'speeches') {
+                    <button class="ent-chip small" [class]="'ent-chip small ' + v.tone" [title]="viewTitle(v)"
+                      (click)="openEntity(r.id, r.name, v.key)">{{ entName(v) }} · {{ t().tones[v.tone] }}</button>
+                  } @else {
+                    <span class="ent-chip small" [class]="'ent-chip small static ' + v.tone" [title]="viewTitle(v)">{{ entName(v) }} · {{ t().tones[v.tone] }}</span>
+                  }
+                }
+              </div>
+            }
           </div>
         }
       </div>
@@ -532,6 +692,18 @@
                   @if (wpError()) { <p class="error">{{ wpError() }}</p> }
                 </div>
               </section>
+              <section>
+                <h3>{{ t().cx['dzEntities'] }}</h3>
+                @if (d.entities?.length) {
+                  <p class="muted">{{ t().cx['dzEntitiesIntro'] }}</p>
+                  <div class="dz-chips">
+                    @for (e of d.entities!; track e.key) {
+                      <button class="ent-chip" [class]="'ent-chip ' + e.tone" (click)="openEntity(d.id, dossierName(), e.key)">
+                        {{ entName(e) }} <span class="ent-meta">{{ t().tones[e.tone] }} · {{ entTimes(e.count) }}</span></button>
+                    }
+                  </div>
+                } @else { <p class="muted">{{ t().cx['dzEntitiesNone'] }}</p> }
+              </section>
               @if (d.profile) {
                 <section>
                   <h3>{{ t().dzAlliances }}</h3>
@@ -628,6 +800,46 @@
               </table>
             } @else { <p class="muted">{{ t().mzNone }}</p> }
             <p class="dz-foot mz-foot">{{ t().mzNote }} @if (m.errors.length) { {{ t().dzPartial }} }</p>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  @if (entModal() || entModalLoading() || entModalError()) {
+    <div class="dz-backdrop mz-backdrop" (click)="closeEntity()">
+      <div class="dz mz" role="dialog" aria-modal="true" (click)="$event.stopPropagation()">
+        <header class="dz-head">
+          <div class="dz-title">
+            @if (entModal(); as m) {
+              <h2>{{ m.who }} · {{ entName(m.data) }}</h2>
+              <p class="muted">{{ t().cx['ezIntro'].replace('{name}', entName(m.data)) }}</p>
+            }
+          </div>
+          <button class="dz-close" (click)="closeEntity()" [attr.aria-label]="t().close">×</button>
+        </header>
+        @if (entModalLoading()) { <p class="muted dz-pad">{{ t().dzLoading }}</p> }
+        @if (entModalError()) { <p class="error dz-pad">{{ entModalError() }}</p> }
+        @if (entModal(); as m) {
+          <div class="dz-pad">
+            <div class="mz-summary">
+              @for (tn of tones4; track tn) {
+                @if (m.data.counts[tn]) { <span class="mz-tone" [class]="'mz-tone ' + tn">{{ t().tones[tn] }}: {{ m.data.counts[tn] }}</span> }
+              }
+            </div>
+            <table class="mz-table">
+              <thead><tr><th>{{ t().cx['ezSpeech'] }}</th><th>{{ t().cx['ezSaid'] }}</th><th>{{ t().cx['ezTone'] }}</th></tr></thead>
+              <tbody>
+                @for (st of m.data.statements; track $index) {
+                  <tr>
+                    <td class="mz-date">{{ st.speech || t().wpUntitled }}@if (st.added) { <br><span class="dz-src">{{ st.added }}</span> }</td>
+                    <td dir="auto">{{ st.text }}</td>
+                    <td><span class="mz-tone" [class]="'mz-tone ' + st.tone">{{ t().tones[st.tone] }}</span>
+                      <span class="mz-cues">{{ toneSource(st.source) }}</span></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
           </div>
         }
       </div>

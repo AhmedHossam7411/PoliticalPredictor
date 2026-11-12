@@ -64,6 +64,9 @@ services:
       # smaller and would silently cut it off.
       OLLAMA_CONTEXT_LENGTH: "16384"
       OLLAMA_KEEP_ALIVE: "24h"
+      # One request at a time: trait scores, stakeholder reactions and the
+      # context check queue up instead of splitting the memory.
+      OLLAMA_NUM_PARALLEL: "1"
     volumes:
       - ollama:/root/.ollama
     restart: unless-stopped

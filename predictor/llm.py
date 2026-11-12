@@ -189,7 +189,7 @@ def not_configured_reason() -> str:
 
 def not_running_reason() -> str:
     return ("The local AI (Karnak) is not running. Start it with: llama-server -m "
-            "Karnak-6B-v1.0.Q4_K_M.gguf -c 16384 --port 8080 --alias karnak-6b")
+            "Karnak-6B-v1.0.Q4_K_M.gguf -c 16384 -np 1 --port 8080 --alias karnak-6b")
 
 
 # Other models to try when the main one fails (comma-separated). None by default:

@@ -27,7 +27,7 @@ Mac or the zip from <https://github.com/ggml-org/llama.cpp/releases> on
 Windows, and download the 3.7 GB model
 <https://huggingface.co/mradermacher/Karnak-6B-v1.0-GGUF/resolve/main/Karnak-6B-v1.0.Q4_K_M.gguf>):
 ```bash
-llama-server -m Karnak-6B-v1.0.Q4_K_M.gguf -c 16384 --port 8080 --alias karnak-6b
+llama-server -m Karnak-6B-v1.0.Q4_K_M.gguf -c 16384 -np 1 --port 8080 --alias karnak-6b
 ```
 
 **2. Backend** (Python 3.11–3.12):
@@ -46,9 +46,23 @@ npm install
 npx ng serve --port 4200               # http://localhost:4200
 ```
 
+`-np 1` makes Karnak answer one request at a time; the trait scores, the
+stakeholder reactions and the context check queue up instead of sharing memory.
+
 Open http://localhost:4200, log in (`admin` / `predict2026` by default), paste
 a speech (or pick a sample), and analyze. On an ordinary computer the AI part
 takes several minutes; the dictionary results come back at once.
+
+## Context-check examples, shared through git
+
+Decisions saved with "Save these decisions as examples for Karnak" go into a local
+SQLite database (`predictor/cortex.db`, not committed; Postgres when `DATABASE_URL`
+is set) and are mirrored to `shared/context_labels.jsonl`, which **is** committed.
+Every computer reads that file into its database on start and before each context
+check, so after `git pull` the other person's examples are used at once; a sentence
+saved on both computers keeps the later decision. Commit and push the file to share
+your examples. It holds sentences from the speeches you reviewed, so keep the
+repository private.
 
 ## Arabic input
 

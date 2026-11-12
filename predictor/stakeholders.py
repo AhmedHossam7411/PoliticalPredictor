@@ -465,15 +465,20 @@ def speeches_of(sid: str) -> list[dict]:
     return out
 
 
-def add_speech(sid: str, text: str, title: str = "") -> dict:
+def add_speech(sid: str, text: str, title: str = "", context: dict | None = None) -> dict:
+    """Save a speech to this person's file. `context` holds the context-check
+    decisions made on exactly this text, so they apply again whenever it is scored."""
     text = (text or "").strip()
     if len(text.split()) < _MIN_SPEECH_WORDS:
         raise ValueError(f"A speech needs at least {_MIN_SPEECH_WORDS} words.")
     import time as _t
     import uuid
     first = next((l.strip() for l in text.splitlines() if l.strip()), "")
-    _store.add_speech(sid, {"id": uuid.uuid4().hex[:12], "title": (title or first)[:120].strip(),
-                            "text": text, "added": _t.strftime("%Y-%m-%d")})
+    record = {"id": uuid.uuid4().hex[:12], "title": (title or first)[:120].strip(),
+              "text": text, "added": _t.strftime("%Y-%m-%d")}
+    if context:
+        record["context"] = context
+    _store.add_speech(sid, record)
     return word_profile(sid)
 
 
@@ -481,31 +486,95 @@ def delete_speech(sid: str, speech_id: str) -> bool:
     return _store.delete_speech(sid, speech_id)
 
 
+def _key_of(speeches: list[dict]) -> str:
+    return str(hash(json.dumps([[s["text"], s.get("context")] for s in speeches],
+                               sort_keys=True, ensure_ascii=False)))
+
+
 def word_profile(sid: str) -> dict:
     """The word scorer run on everything this person said that is on file, one result
-    per language (Arabic and English are scored against their own norms)."""
+    per language (Arabic and English are scored against their own norms). Context-check
+    decisions saved with a speech are applied."""
     from .arabic import is_arabic
-    from .score import analyze_with_bands
+    from .context import raw_lta
+    from .score import band_lta, merge_lta
     speeches = speeches_of(sid)
     listed = [{"id": s["id"], "title": s.get("title") or "", "words": len(s["text"].split()),
                "language": "ar" if is_arabic(s["text"]) else "en", "added": s.get("added"),
-               "removable": s["removable"]} for s in speeches]
+               "removable": s["removable"], "reviewed": bool(s.get("context"))} for s in speeches]
     results = []
     for lang in ("en", "ar"):
-        texts = [s["text"] for s, l in zip(speeches, listed) if l["language"] == lang]
-        if not texts:
+        group = [s for s, l in zip(speeches, listed) if l["language"] == lang]
+        if not group:
             continue
-        text = "\n\n".join(texts)
-        key = f"{lang}:{hash(text)}"
+        key = f"{lang}:{_key_of(group)}"
         if key not in _profile_cache:
-            r = analyze_with_bands(text)["lta"]
+            r = band_lta(merge_lta([raw_lta(s["text"], s.get("context")) for s in group]))
             _profile_cache[key] = {
-                "language": lang, "speeches": len(texts), "tokens": r["tokens"],
+                "language": lang, "speeches": len(group), "tokens": r["tokens"],
+                "reviewed": sum(1 for s in group if s.get("context")),
                 "traits": {t: {"band": v["band"], "percent": round(v.get("percent", 0.0), 1),
                                "confidence": v.get("confidence")} for t, v in r["traits"].items()},
             }
         results.append(_profile_cache[key])
     return {"speeches": listed, "results": results}
+
+
+_entity_cache: dict[str, list] = {}
+
+
+def entity_profile(sid: str) -> list[dict]:
+    """The countries and organizations this person names in the speeches on file,
+    each with the sentences and a tone per sentence (from the saved context check
+    where there is one, else from cue words). Most-named first."""
+    from . import entities
+    from .context import tone_map
+    speeches = speeches_of(sid)
+    key = _key_of(speeches)
+    if key in _entity_cache:
+        return _entity_cache[key]
+    merged: dict[str, dict] = {}
+    for sp in speeches:
+        for e in entities.summarize(sp["text"], tone_map(sp.get("context"))):
+            m = merged.setdefault(e["key"], {**entities.info(e["key"]), "count": 0, "statements": []})
+            m["count"] += e["count"]
+            m["statements"] += [{**st, "speech": sp.get("title") or "", "added": sp.get("added")}
+                                for st in e["statements"]]
+    out = []
+    for m in merged.values():
+        m["counts"] = {t: sum(1 for st in m["statements"] if st["tone"] == t)
+                       for t in ("positive", "negative", "mixed", "neutral")}
+        m["tone"] = entities.overall_tone(m["counts"])
+        out.append(m)
+    out.sort(key=lambda m: -m["count"])
+    if len(_entity_cache) > 64:
+        _entity_cache.clear()
+    _entity_cache[key] = out
+    return out
+
+
+def views_on(sid: str, keys: list[str]) -> list[dict]:
+    """What this person thinks of each country/organization in `keys`: from their own
+    speeches on file first, else from their profile's partners and rivals."""
+    from . import dossier, entities
+    said = {e["key"]: e for e in entity_profile(sid)}
+    prof = dossier.PROFILES.get(sid) or {}
+    side = {}
+    for label in prof.get("partners", []):
+        if (k := dossier.country_of(label)):
+            side.setdefault(k, ("positive", label))
+    for label in prof.get("frictions", []):
+        if (k := dossier.country_of(label)):
+            side.setdefault(k, ("negative", label))
+    out = []
+    for k in keys:
+        if k in said:
+            e = said[k]
+            out.append({**entities.info(k), "tone": e["tone"], "counts": e["counts"],
+                        "statements": len(e["statements"]), "source": "speeches"})
+        elif k in side:
+            out.append({**entities.info(k), "tone": side[k][0], "source": "profile", "note": side[k][1]})
+    return out
 
 
 # --- Keyword heuristic ------------------------------------------------------

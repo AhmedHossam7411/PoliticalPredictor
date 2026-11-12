@@ -575,11 +575,13 @@ _TONE = {
                "denounc", "reject", "blame", "aggression", "occupation", "genocid", "war ",
                "strike", "sanction", "hostil", "enemy", "terror", "destabili", "violat", "tyrant",
                "rebuk", "lash", "red line", "must not", "against", "topple", "overthrow",
-               "destroy", "eliminat", "defeat", "regime", "danger", "menace", "punish", "retaliat"],
+               "destroy", "eliminat", "defeat", "regime", "danger", "menace", "punish", "retaliat",
+               "fail", "useless", "corrupt", "waste", "disgrace", "ripoff", "rip off", "unfair",
+               "taken advantage", "abuse"],
         "ar": ["يدين", "أدان", "ينتقد", "انتقد", "يحذر", "حذر", "يتهم", "اتهم", "يرفض", "رفض",
                "عدوان", "الاحتلال", "إبادة", "حرب", "تهديد", "هجوم", "العدو", "إرهاب", "انتهاك",
                "يندد", "ندد", "جرائم", "يهاجم", "هاجم", "سنسقط", "إسقاط", "نسقط", "تدمير", "القضاء على",
-               "خطر", "النظام الإيراني", "عقوبات", "الانتقام"],
+               "خطر", "النظام الإيراني", "عقوبات", "الانتقام", "فشل", "فشلت", "عجز", "تقاعس"],
     },
 }
 _AR_SPEAKS = re.compile(r"^\s*(:|" + "|".join(map(re.escape, _ar_norm(_AR_VERBS).split())) + r")(?!\w)")
