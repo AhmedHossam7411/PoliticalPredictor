@@ -31,3 +31,4 @@ predictor/stakeholder_speeches.json
 predictor/context_labels.json
 predictor/cortex.db
 predictor/context_labels.json.moved-to-db
+predictor/stakeholder_edits.json

@@ -532,10 +532,45 @@ def country_of(label: str) -> str | None:
     return min(found)[1] if found else None
 
 
+def in_arabic(sid: str, prof: dict | None) -> dict | None:
+    """The compiled profile with its text in Arabic (built-in people only). Partners and
+    rivals keep their country tags: the Arabic lists are in the same order."""
+    from .stakeholders_ar import AR
+    ar = AR.get(sid)
+    if not prof or not ar:
+        return prof
+    out = {**prof, **{k: ar[k] for k in ("country", "background", "leadership_style", "memberships") if k in ar},
+           "personality_type": ar.get("personality_type", prof.get("personality_type", []))}
+    for k in ("partners", "frictions"):
+        if len(ar.get(k, [])) == len(prof.get(k, [])):
+            out[k] = [{**rel, "label": label} for rel, label in zip(prof[k], ar[k])]
+    return out
+
+
+def with_edits(sid: str, prof: dict | None, edit: dict) -> dict | None:
+    """The profile with the hand-made changes laid over it (a person without a compiled
+    profile gets one from the edit alone)."""
+    if not edit:
+        return prof
+    base = prof or {"country": "", "cc": "", "name_local": "", "query_local": "", "official": [],
+                    "background": "", "leadership_style": "", "memberships": [], "partners": [],
+                    "frictions": [], "personality_type": []}
+    out = {**base, **{k: v for k, v in edit.items() if k not in ("partners", "frictions")}}
+    tag = lambda labels: [{"label": l, "country": (c := country_of(l)),
+                           "country_name": COUNTRIES[c][0] if c else None,
+                           "country_name_ar": COUNTRIES[c][1] if c else None}
+                          for l in labels]
+    for k in ("partners", "frictions"):
+        if k in edit:
+            out[k] = tag(edit[k])
+    return out
+
+
 def _with_details(sid: str, prof: dict) -> dict:
     """The profile with personality type, and each partner or rival tagged with its country."""
-    tag = lambda labels: [{"label": l, "country": country_of(l),
-                           "country_name": COUNTRIES[c][0] if (c := country_of(l)) else None}
+    tag = lambda labels: [{"label": l, "country": (c := country_of(l)),
+                           "country_name": COUNTRIES[c][0] if c else None,
+                           "country_name_ar": COUNTRIES[c][1] if c else None}
                           for l in labels]
     return {**prof, "personality_type": PERSONALITY.get(sid, []),
             "partners": tag(prof["partners"]), "frictions": tag(prof["frictions"])}

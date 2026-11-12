@@ -77,6 +77,7 @@ class BatchRequest(BaseModel):
 class NewStakeholder(BaseModel):
     name: str = Field(..., min_length=1)
     role: str = ""
+    category: str | None = None  # organization / state / government / other; guessed if empty
     scope: str = ""
     personality: str = ""
     values: list[str] = []
@@ -262,9 +263,14 @@ def analyze_batch(req: BatchRequest, user: str = Depends(auth.require_auth)) -> 
 
 
 @app.get("/stakeholders")
-def stakeholders_list(user: str = Depends(auth.require_auth)) -> dict:
-    """The stakeholder panel (built-in + user-added) the UI can render."""
-    return {"stakeholders": stk.PROFILES_PUBLIC, "removed": stk.REMOVED_BUILTINS}
+def stakeholders_list(language: str = "en", user: str = Depends(auth.require_auth)) -> dict:
+    """The stakeholder panel (built-in + user-added), in the interface language."""
+    lang = "ar" if language == "ar" else "en"
+    removed = stk.REMOVED_BUILTINS
+    if lang == "ar":
+        from .stakeholders_ar import AR
+        removed = [{**r, "name": AR.get(r["id"], {}).get("name", r["name"])} for r in removed]
+    return {"stakeholders": stk.public_list(lang), "removed": removed}
 
 
 @app.get("/stakeholders/speeches")
@@ -298,8 +304,11 @@ def stakeholder_dossier(sid: str, language: str = "en",
     person = next((s for s in stk.STAKEHOLDERS if s["id"] == sid), None)
     if person is None:
         raise HTTPException(status_code=404, detail="No such stakeholder.")
-    out = dossier.build(person, language="ar" if language == "ar" else "en")
-    return {**out, "person": stk._public(person), "word_profile": stk.word_profile(sid),
+    lang = "ar" if language == "ar" else "en"
+    out = dossier.build(person, language=lang)
+    prof = dossier.in_arabic(sid, out["profile"]) if lang == "ar" else out["profile"]
+    out = {**out, "profile": dossier.with_edits(sid, prof, stk.profile_edit(sid))}
+    return {**out, "person": stk._public(stk.localized(person, lang)), "word_profile": stk.word_profile(sid),
             "entities": stk.entity_profile(sid)}
 
 
@@ -340,11 +349,39 @@ def delete_stakeholder_speech(sid: str, speech_id: str, user: str = Depends(auth
 @app.get("/stakeholders/{sid}/mentions/{country}")
 def stakeholder_mentions(sid: str, country: str, user: str = Depends(auth.require_auth)) -> dict:
     """What a built-in stakeholder said about one of their partner or rival countries."""
-    prof = dossier.PROFILES.get(sid)
-    listed = {dossier.country_of(l) for l in (prof["partners"] + prof["frictions"])} if prof else set()
+    prof = {**(dossier.PROFILES.get(sid) or {}), **stk.profile_edit(sid)}
+    listed = {dossier.country_of(l) for l in (prof.get("partners", []) + prof.get("frictions", []))}
     if country not in listed or sid not in dossier.ALIASES:
         raise HTTPException(status_code=404, detail="No such country in this profile.")
     return dossier.mentions(sid, country)
+
+
+class EditStakeholder(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    category: str | None = None
+    personality: str | None = None
+    values: list[str] | None = None
+    supports: list[str] | None = None
+    opposes: list[str] | None = None
+    concerns: list[str] | None = None
+    profile: dict | None = None  # background, leadership_style, personality_type, memberships, partners, frictions
+
+
+@app.put("/stakeholders/{sid}")
+def edit_stakeholder(sid: str, req: EditStakeholder, user: str = Depends(auth.require_auth)) -> dict:
+    """Change a stakeholder's details and profile; the original stays and can be restored."""
+    try:
+        return {"stakeholder": stk.edit_stakeholder(sid, req.model_dump(exclude_none=True))}
+    except KeyError:
+        raise HTTPException(status_code=404, detail="No such stakeholder.")
+
+
+@app.delete("/stakeholders/{sid}/edits")
+def reset_stakeholder(sid: str, user: str = Depends(auth.require_auth)) -> dict:
+    """Undo every change made in this stakeholder's profile."""
+    stk.reset_stakeholder(sid)
+    return {"ok": True}
 
 
 @app.post("/stakeholders/{sid}/restore")
@@ -362,7 +399,7 @@ def analyze_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_a
     out = stk.react(req.text, language=req.language)
     keys = [e["key"] for e in entities.summarize(req.text)]
     for r in out.get("reactions", []):
-        r["views"] = stk.views_on(r["id"], keys) if keys else []
+        r["views"] = stk.views_on(r["id"], keys, req.language) if keys else []
     return out
 
 

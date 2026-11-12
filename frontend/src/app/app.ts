@@ -129,11 +129,11 @@ interface StakeResult { reactions: Reaction[]; method: string; model?: string;
   read_in_parts?: { parts: number; total_words: number } | null; }
 interface PublicStakeholder { id: string; name: string; role: string; scope?: string;
   personality?: string; values: string[]; supports: string[]; opposes: string[];
-  concerns: string[]; custom: boolean; }
+  concerns: string[]; custom: boolean; category?: string; edited?: boolean; }
 interface SpeechOpt { id: string; label: string; }
 interface NewsItem { title: string; url: string; source: string; domain: string; published: string; }
 // A partner or rival; `country` is set when it is a country the user can click.
-interface Relation { label: string; country: string | null; country_name: string | null; }
+interface Relation { label: string; country: string | null; country_name: string | null; country_name_ar?: string | null; }
 interface DossierProfile { country: string; cc: string; name_local: string;
   official: { name: string; url: string }[]; background: string; leadership_style: string;
   personality_type: string[]; memberships: string[]; partners: Relation[]; frictions: Relation[]; }
@@ -219,7 +219,11 @@ export class App {
   speeches = signal<SpeechOpt[]>([]);
   showPanel = signal(false);
   showAddForm = signal(false);
-  nsName = signal(''); nsRole = signal('');
+  nsName = signal(''); nsRole = signal(''); nsCategory = signal('');
+  readonly shGroups = ['organization', 'state', 'government', 'other'];
+  /** The panel split into its four groups, always in this order and numbering. */
+  stakeholderGroups = computed(() => this.shGroups
+    .map((g) => ({ key: g, people: this.stakeholders().filter((s) => (s.category || 'other') === g) })));
   nsValues = signal(''); nsSupports = signal(''); nsOpposes = signal(''); nsConcerns = signal('');
   speechMode = signal<'new' | 'existing' | 'none'>('new');
   nsSpeechText = signal(''); nsSpeechFrom = signal('');
@@ -615,6 +619,14 @@ export class App {
     this.change(s.i, (d) => ({ ...d, noWhole: (d.noWhole ?? []).filter((x) => x !== s.i) }));
   }
 
+  /** A reaction's person in the interface language (the AI may have written the English name). */
+  who(r: { id: string; name: string; role: string }): { name: string; role: string } {
+    const s = this.stakeholders().find((x) => x.id === r.id);
+    return s ? { name: s.name, role: s.role } : { name: r.name, role: r.role };
+  }
+
+  relCountry(v: Relation): string { return (this.lang() === 'ar' ? v.country_name_ar : v.country_name) ?? v.label; }
+
   kindName(kind: string): string { return this.t().cx['kind_' + kind] ?? ''; }
 
   addsOf(s: ReviewSentence) { return this.decisions().add.filter((a) => a.sentence === s.i && a.start === undefined); }
@@ -829,7 +841,7 @@ export class App {
 
   loadStakeholders() {
     this.http.get<{ stakeholders: PublicStakeholder[]; removed: { id: string; name: string }[] }>(
-      `${API}/stakeholders`).subscribe({
+      `${API}/stakeholders`, { params: { language: this.lang() } }).subscribe({
       next: (r) => { this.stakeholders.set(r.stakeholders); this.removedStakeholders.set(r.removed); },
       error: () => {},
     });
@@ -861,7 +873,7 @@ export class App {
     const name = this.nsName().trim();
     if (!name) { this.addError.set(this.t().nameRequired); return; }
     const body: Record<string, unknown> = {
-      name, role: this.nsRole().trim(),
+      name, role: this.nsRole().trim(), category: this.nsCategory() || null,
       values: this.splitCsv(this.nsValues()), supports: this.splitCsv(this.nsSupports()),
       opposes: this.splitCsv(this.nsOpposes()), concerns: this.splitCsv(this.nsConcerns()),
       language: this.lang(),
@@ -895,6 +907,7 @@ export class App {
     this.dossierName.set(name);
     this.dossier.set(null); this.dossierError.set(''); this.dossierLoading.set(true);
     this.wpFormOpen.set(false); this.wpText.set(''); this.wpTitle.set(''); this.wpError.set('');
+    this.editing.set(false); this.editError.set('');
     this.dossierOpen.set(true);
     document.body.style.overflow = 'hidden';
     setTimeout(() => document.getElementById('dz-close')?.focus());
@@ -902,6 +915,76 @@ export class App {
       { params: { language: this.lang() } }).subscribe({
       next: (d) => { if (this.dossierFor === id) { this.dossier.set(d); this.dossierLoading.set(false); } },
       error: (e) => { if (this.dossierFor === id) { this.dossierError.set(this.msg(e)); this.dossierLoading.set(false); } },
+    });
+  }
+
+  // --- Editing a stakeholder's profile ------------------------------------------
+  editing = signal(false);
+  editBusy = signal(false);
+  editError = signal('');
+  // One text per field; lists are one item per line.
+  ed: Record<string, string> = {};
+  private edStart: Record<string, string> = {};
+
+  private lines(v: string[] | undefined): string { return (v ?? []).join('\n'); }
+  private unlines(v: string): string[] { return (v ?? '').split('\n').map((x) => x.trim()).filter(Boolean); }
+
+  startEdit() {
+    const d = this.dossier();
+    if (!d) return;
+    const p = d.profile, who = d.person;
+    this.ed = {
+      name: who.name, role: who.role, category: who.category || 'other', personality: who.personality ?? '',
+      values: this.lines(who.values), supports: this.lines(who.supports), opposes: this.lines(who.opposes),
+      concerns: this.lines(who.concerns),
+      background: p?.background ?? '', leadership_style: p?.leadership_style ?? '',
+      personality_type: this.lines(p?.personality_type), memberships: this.lines(p?.memberships),
+      partners: this.lines(p?.partners.map((r) => r.label)), frictions: this.lines(p?.frictions.map((r) => r.label)),
+    };
+    this.edStart = { ...this.ed };
+    this.editError.set('');
+    this.editing.set(true);
+  }
+
+  saveEdit() {
+    const d = this.dossier(), e = this.ed;
+    if (!d) return;
+    if (!e['name']?.trim()) { this.editError.set(this.t().nameRequired); return; }
+    // Only what was changed is sent: untouched fields keep following the interface language.
+    const changed = (k: string) => (e[k] ?? '') !== (this.edStart[k] ?? '');
+    const lists = new Set(['values', 'supports', 'opposes', 'concerns', 'personality_type', 'memberships', 'partners', 'frictions']);
+    const val = (k: string) => lists.has(k) ? this.unlines(e[k]) : (k === 'name' ? e[k].trim() : e[k]);
+    const body: Record<string, any> = { profile: {} };
+    for (const k of ['name', 'role', 'category', 'personality', 'values', 'supports', 'opposes', 'concerns']) {
+      if (changed(k)) body[k] = val(k);
+    }
+    for (const k of ['background', 'leadership_style', 'personality_type', 'memberships', 'partners', 'frictions']) {
+      if (changed(k)) body['profile'][k] = val(k);
+    }
+    this.editBusy.set(true); this.editError.set('');
+    this.http.put(`${API}/stakeholders/${encodeURIComponent(d.id)}`, body).subscribe({
+      next: () => {
+        this.editBusy.set(false); this.editing.set(false);
+        this.loadStakeholders();
+        this.openDossier(d.id, e['name'].trim());
+      },
+      error: (err) => { this.editBusy.set(false); this.editError.set(this.msg(err)); },
+    });
+  }
+
+  resetEdit() {
+    const d = this.dossier();
+    if (!d) return;
+    this.editBusy.set(true);
+    this.http.delete(`${API}/stakeholders/${encodeURIComponent(d.id)}/edits`).subscribe({
+      next: () => {
+        this.editBusy.set(false); this.editing.set(false);
+        this.loadStakeholders();
+        this.http.get<{ stakeholders: PublicStakeholder[] }>(`${API}/stakeholders`).subscribe({
+          next: (r) => this.openDossier(d.id, r.stakeholders.find((s) => s.id === d.id)?.name ?? d.person.name),
+        });
+      },
+      error: (err) => { this.editBusy.set(false); this.editError.set(this.msg(err)); },
     });
   }
 
@@ -1045,6 +1128,13 @@ export class App {
 
   toggleLang() {
     this.lang.update((l) => (l === 'en' ? 'ar' : 'en'));
+    // Names, titles and profiles come from the server in the chosen language.
+    this.loadStakeholders();
+    if (this.dossierOpen() && this.dossierFor && !this.editing()) {
+      const id = this.dossierFor;
+      this.http.get<{ stakeholders: PublicStakeholder[] }>(`${API}/stakeholders`, { params: { language: this.lang() } })
+        .subscribe({ next: (r) => this.openDossier(id, r.stakeholders.find((s) => s.id === id)?.name ?? this.dossierName()) });
+    }
     // Re-run the language-dependent analyses so the AI prose (and the PDF) match
     // the new language — labels alone flipping would leave stale English content.
     const snap = this.submittedText();

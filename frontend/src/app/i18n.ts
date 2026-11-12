@@ -81,6 +81,9 @@ export interface Bundle {
   bands: Record<string, string>;
   traitNames: Record<string, string>;
   cx: Record<string, string>; cxCodes: Record<string, string>;
+  shGroups: Record<string, string>; shEmpty: Record<string, string>; fldGroup: string; groupGuess: string;
+  edBtn: string; edHeading: string; edIntro: string; edSave: string; edReset: string; edEditedNote: string;
+  edOnePerLine: string; edCountryFirst: string; edPersonality: string;
   info: Record<string, TraitInfo>;
   vicsInfo: Record<string, string>;
   errReach: string; errOff: string; errGeneric: string;
@@ -329,6 +332,15 @@ const en: Bundle = {
     ezIntro: 'Every sentence on file that names {name}, and the attitude in it.',
     ezSpeech: 'Speech', ezSaid: 'What was said', ezTone: 'Attitude',
   },
+  shGroups: { organization: 'Heads of international organisations', state: 'Heads of state', government: 'Heads of government', other: 'Other actors' },
+  shEmpty: { organization: 'No one yet. Add, for example, the UN Secretary-General, the Arab League Secretary-General or the head of the IMF.',
+             state: 'No one yet.', government: 'No one yet.', other: 'No one yet.' },
+  fldGroup: 'Group', groupGuess: 'Work it out from the title',
+  edBtn: 'Edit profile', edHeading: 'Edit profile',
+  edIntro: 'Change anything here. The stakeholder reactions use the new details from the next analysis on. The original stays saved, so you can restore it.',
+  edSave: 'Save changes', edReset: 'Restore the original', edEditedNote: 'This profile was edited by hand.',
+  edOnePerLine: '(one per line)', edCountryFirst: '(one per line; start with the country so it can be clicked)',
+  edPersonality: 'How they decide (shown to the AI)',
   cxCodes: { BACE: 'control over events', PWR: 'need for power', 'SC+': 'self-confidence', 'SC-': 'self-doubt',
     'CC+': 'nuance', 'CC-': 'black-and-white thinking', TASK: 'focus on the task', REL: 'focus on relationships',
     DIS: 'distrust of others', IGB: 'us versus them' },
@@ -577,6 +589,15 @@ const ar: Bundle = {
     ezIntro: 'كل جملة محفوظة تذكر {name}، والموقف فيها.',
     ezSpeech: 'الخطاب', ezSaid: 'ما قيل', ezTone: 'الموقف',
   },
+  shGroups: { organization: 'رؤساء المنظمات الدولية', state: 'رؤساء الدول', government: 'رؤساء الحكومات', other: 'فاعلون آخرون' },
+  shEmpty: { organization: 'لا أحد بعد. أضف مثلًا الأمين العام للأمم المتحدة أو الأمين العام لجامعة الدول العربية أو رئيس صندوق النقد الدولي.',
+             state: 'لا أحد بعد.', government: 'لا أحد بعد.', other: 'لا أحد بعد.' },
+  fldGroup: 'الفئة', groupGuess: 'تُحدَّد من المنصب',
+  edBtn: 'تعديل الملف', edHeading: 'تعديل الملف',
+  edIntro: 'غيّر ما تريد هنا. تستخدم ردود أصحاب المصلحة البيانات الجديدة بدءًا من التحليل التالي. تبقى النسخة الأصلية محفوظة، ويمكنك استعادتها.',
+  edSave: 'حفظ التغييرات', edReset: 'استعادة الأصل', edEditedNote: 'عُدّل هذا الملف يدويًا.',
+  edOnePerLine: '(عنصر في كل سطر)', edCountryFirst: '(عنصر في كل سطر؛ ابدأ باسم الدولة ليصبح قابلًا للنقر)',
+  edPersonality: 'طريقته في اتخاذ القرار (تُعرض على الذكاء الاصطناعي)',
   cxCodes: { BACE: 'التحكم في الأحداث', PWR: 'الحاجة إلى القوة', 'SC+': 'الثقة بالنفس', 'SC-': 'الشك في النفس',
     'CC+': 'رؤية الجوانب المتعددة', 'CC-': 'التفكير بالأبيض والأسود', TASK: 'التركيز على المهمة', REL: 'التركيز على العلاقات',
     DIS: 'عدم الثقة بالآخرين', IGB: 'نحن في مواجهة هم' },

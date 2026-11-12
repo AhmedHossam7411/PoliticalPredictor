@@ -1,1 +1,35 @@
 /* You can add global styles to this file, and also import other style files */
+
+/* Arabic letters in the classic Naskh faces look smaller than Latin ones at the same
+   size; these faces cover only the Arabic letters and enlarge them, so English text
+   keeps its size. Mac (Al Nile / Geeza Pro) first, then Windows (Traditional Arabic). */
+@font-face {
+  font-family: "Cortex Arabic Mac";
+  src: local("Al Nile"), local("AlNile"), local("Geeza Pro"), local("GeezaPro");
+  size-adjust: 138%;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+@font-face {
+  font-family: "Cortex Arabic Win";
+  src: local("Traditional Arabic"), local("TraditionalArabic"), local("Simplified Arabic"), local("Arabic Typesetting");
+  size-adjust: 170%;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+
+/* Body Arabic: the modern system face (Segoe UI on Windows, SF Arabic / Geeza Pro on the
+   Mac). Titles and the logo keep the classic Naskh faces above. */
+@font-face {
+  font-family: "Cortex Arabic UI";
+  src: local("Segoe UI"), local("SegoeUI"), local("SF Arabic"), local("SFArabic-Regular"),
+       local("Geeza Pro"), local("GeezaPro"), local("Noto Sans Arabic"), local("Tahoma");
+  size-adjust: 112%;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}
+@font-face {
+  font-family: "Cortex Arabic UI";
+  font-weight: 600 800;
+  src: local("Segoe UI Semibold"), local("SegoeUI-Semibold"), local("Segoe UI Bold"), local("SF Arabic Bold"),
+       local("SFArabic-Bold"), local("Geeza Pro Bold"), local("GeezaPro-Bold"), local("Tahoma Bold");
+  size-adjust: 112%;
+  unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
+}

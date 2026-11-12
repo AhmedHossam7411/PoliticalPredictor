@@ -23,6 +23,8 @@ from pathlib import Path
 _JSON_PATH = Path(__file__).resolve().parent / "custom_stakeholders.json"
 _HIDDEN_PATH = Path(__file__).resolve().parent / "hidden_stakeholders.json"
 _SPEECHES_PATH = Path(__file__).resolve().parent / "stakeholder_speeches.json"
+# Changes made in a stakeholder's profile ({sid: fields}); laid over the original.
+_EDITS_PATH = Path(__file__).resolve().parent / "stakeholder_edits.json"
 # Sentences someone (or the AI) reviewed in the context check: examples Karnak follows.
 # Kept in a SQLite database; the old JSON file is moved into it once.
 _LABELS_DB = Path(__file__).resolve().parent / "cortex.db"
@@ -128,6 +130,23 @@ class JsonStore:
         self.speeches_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         return True
 
+    # Profile edits: {sid: fields}. None removes the edit (back to the original).
+    def edits(self) -> dict:
+        try:
+            return json.loads(_EDITS_PATH.read_text(encoding="utf-8")) if self.path == _JSON_PATH else {}
+        except (OSError, json.JSONDecodeError):
+            return {}
+
+    def set_edit(self, sid: str, data: dict | None) -> None:
+        if self.path != _JSON_PATH:  # tests with temporary files keep edits in memory only
+            return
+        all_edits = self.edits()
+        if data is None:
+            all_edits.pop(sid, None)
+        else:
+            all_edits[sid] = data
+        _EDITS_PATH.write_text(json.dumps(all_edits, ensure_ascii=False, indent=2), encoding="utf-8")
+
     # Labelled sentences from the context check; a sentence saved again replaces itself.
     def labels(self) -> list[dict]:
         return self._labels.labels()
@@ -172,6 +191,14 @@ class PgStore:
                     owner       text NOT NULL DEFAULT 'default',
                     data        jsonb NOT NULL,
                     created_at  timestamptz NOT NULL DEFAULT now(),
+                    PRIMARY KEY (id, owner)
+                )"""
+            )
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS stakeholder_edits (
+                    id          text NOT NULL,
+                    owner       text NOT NULL DEFAULT 'default',
+                    data        jsonb NOT NULL,
                     PRIMARY KEY (id, owner)
                 )"""
             )
@@ -239,6 +266,21 @@ class PgStore:
                                (speech_id, sid, self.owner))
             conn.commit()
             return cur.rowcount > 0
+
+    def edits(self) -> dict:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT id, data FROM stakeholder_edits WHERE owner = %s", (self.owner,)).fetchall()
+        return {r[0]: r[1] for r in rows}
+
+    def set_edit(self, sid: str, data: dict | None) -> None:
+        from psycopg.types.json import Jsonb
+        with self._connect() as conn:
+            if data is None:
+                conn.execute("DELETE FROM stakeholder_edits WHERE id = %s AND owner = %s", (sid, self.owner))
+            else:
+                conn.execute("INSERT INTO stakeholder_edits (id, owner, data) VALUES (%s, %s, %s) "
+                             "ON CONFLICT (id, owner) DO UPDATE SET data = EXCLUDED.data", (sid, self.owner, Jsonb(data)))
+            conn.commit()
 
     def labels(self) -> list[dict]:
         with self._connect() as conn:

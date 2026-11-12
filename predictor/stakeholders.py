@@ -304,10 +304,56 @@ PROFILES_PUBLIC: list[dict] = []
 REMOVED_BUILTINS: list[dict] = []  # built-ins taken off the panel, for restoring
 
 
+# Panel groups: heads of international organisations, of state, of government, and
+# other actors (national bodies such as a central bank, Al-Azhar or a church go here).
+CATEGORIES = ("organization", "state", "government", "other")
+_CATEGORY = {
+    "sisi": "state", "mbz": "state", "tamim": "state", "abdullah-ii": "state", "erdogan": "state",
+    "abbas": "state", "sharaa": "state",
+    # Saudi Arabia's crown prince is its prime minister; in Iran the president heads the
+    # government and the Supreme Leader is head of state.
+    "mbs": "government", "netanyahu": "government", "pezeshkian": "government", "madbouly": "government",
+    "hassan-abdalla": "other", "el-tayeb": "other", "tawadros": "other",
+    "abdelatty": "other", "sawiris": "other",
+}
+# A role naming one of these is the head of an international organisation.
+_INTERNATIONAL = ("united nations", "u.n.", "un secretary", "secretary-general of the un", "arab league",
+                  "league of arab states", "african union", "european commission", "european council",
+                  "world bank", "imf", "international monetary fund", "nato", "world health", "who director",
+                  "world trade", "opec", "brics", "gulf cooperation council", "gcc", "islamic cooperation",
+                  "unrwa", "unicef", "unesco", "unhcr", "wfp", "world food", "international", "interpol",
+                  "الأمم المتحدة", "جامعة الدول العربية", "الاتحاد الأفريقي", "البنك الدولي", "صندوق النقد",
+                  "منظمة", "الدولي", "الدولية")
+_GUESS = (
+    ("government", ("prime minister", "premier", "chancellor", "head of government", "رئيس الوزراء", "رئيس الحكومة")),
+    ("state", ("president of", "king", "emir", "amir", "sultan", "monarch", "head of state", "crown prince",
+               "رئيس جمهورية", "رئيس دولة", "الملك", "الأمير", "السلطان")),
+)
+
+
+def category_of(s: dict) -> str:
+    """Which panel group a stakeholder belongs to: set by hand, built-in, or guessed from the role."""
+    cat = s.get("category")
+    if cat in CATEGORIES:
+        return cat
+    if s.get("id") in _CATEGORY:
+        return _CATEGORY[s["id"]]
+    role = (s.get("role") or "").lower()
+    # "President of the World Bank" heads an international organisation, not a state.
+    if any(w in role for w in _INTERNATIONAL):
+        return "organization"
+    for cat, words in _GUESS:
+        if any(w in role for w in words):
+            return cat
+    return "other"
+
+
 def _public(s: dict) -> dict:
     out = {k: s.get(k) for k in ("id", "name", "role", "scope", "personality",
                                  "values", "supports", "opposes", "concerns")}
     out["custom"] = bool(s.get("custom"))
+    out["category"] = category_of(s)
+    out["edited"] = bool(s.get("edited"))
     return out
 
 
@@ -327,7 +373,9 @@ def _rebuild() -> None:
     global STAKEHOLDERS, PROFILES_PUBLIC, REMOVED_BUILTINS, BASELINE_PROFILES
     custom = _store.list()
     hidden = _store.hidden()
-    STAKEHOLDERS = [s for s in _BUILTIN if s["id"] not in hidden] + [_view(r) for r in custom]
+    edits = _store.edits()
+    STAKEHOLDERS = [_edited(s, edits) for s in [s for s in _BUILTIN if s["id"] not in hidden]
+                    + [_view(r) for r in custom]]
     REMOVED_BUILTINS = [{"id": s["id"], "name": s["name"]} for s in _BUILTIN if s["id"] in hidden]
     PROFILES_PUBLIC = [_public(s) for s in STAKEHOLDERS]
     profiles = dict(_BUILTIN_PROFILES)
@@ -335,6 +383,76 @@ def _rebuild() -> None:
         if r.get("profile"):
             profiles[r["id"]] = r["profile"]
     BASELINE_PROFILES = profiles
+
+
+# Fields of the panel entry a person may change in the profile; the rest of an edit
+# ("profile") changes the compiled background shown in the profile window.
+PERSON_FIELDS = ("name", "role", "category", "personality", "values", "supports", "opposes", "concerns", "responses")
+PROFILE_FIELDS = ("background", "leadership_style", "personality_type", "memberships", "partners", "frictions")
+
+
+def _edited(s: dict, edits: dict) -> dict:
+    e = edits.get(s["id"])
+    if not e:
+        return s
+    return {**s, **{k: v for k, v in e.items() if k in PERSON_FIELDS}, "edited": True}
+
+
+def localized(s: dict, language: str = "en") -> dict:
+    """The panel entry in the interface language: Arabic text for built-in people,
+    except for fields someone edited by hand (those keep what was typed)."""
+    if language != "ar":
+        return s
+    from .stakeholders_ar import AR, PERSON_FIELDS as AR_FIELDS
+    ar = AR.get(s["id"])
+    if not ar:
+        return s
+    edited = set((_store.edits().get(s["id"]) or {}).keys())
+    return {**s, **{k: ar[k] for k in AR_FIELDS if k in ar and k not in edited}}
+
+
+def public_list(language: str = "en") -> list[dict]:
+    return [_public(localized(s, language)) for s in STAKEHOLDERS]
+
+
+def profile_edit(sid: str) -> dict:
+    """The profile fields changed by hand for this person (background, style, alliances...)."""
+    return (_store.edits().get(sid) or {}).get("profile") or {}
+
+
+def edit_stakeholder(sid: str, data: dict) -> dict:
+    """Save changes to a person's panel entry and profile; returns their panel entry."""
+    if not any(s["id"] == sid for s in STAKEHOLDERS):
+        raise KeyError(sid)
+    current = dict(_store.edits().get(sid) or {})
+    for k in PERSON_FIELDS:
+        if k in data and data[k] is not None:
+            v = data[k]
+            if k in ("values", "supports", "opposes", "concerns", "responses"):
+                v = _as_list(v)
+            elif k == "category":
+                v = v if v in CATEGORIES else None
+            else:
+                v = str(v).strip()
+            if k == "name" and not v:
+                continue
+            current[k] = v
+    prof = dict(current.get("profile") or {})
+    for k in PROFILE_FIELDS:
+        if k in (data.get("profile") or {}):
+            v = data["profile"][k]
+            prof[k] = _as_list(v) if k in ("personality_type", "memberships", "partners", "frictions") else str(v or "").strip()
+    if prof:
+        current["profile"] = prof
+    _store.set_edit(sid, current)
+    _rebuild()
+    return _public(next(s for s in STAKEHOLDERS if s["id"] == sid))
+
+
+def reset_stakeholder(sid: str) -> None:
+    """Drop every change made in the profile: back to the original."""
+    _store.set_edit(sid, None)
+    _rebuild()
 
 
 _rebuild()
@@ -391,6 +509,7 @@ def add_stakeholder(data: dict, language: str = "en") -> dict:
     record = {
         "id": sid, "name": name, "custom": True,
         "role": (data.get("role") or "").strip(),
+        "category": data.get("category") if data.get("category") in CATEGORIES else None,
         "scope": (data.get("scope") or "").strip() or "Custom",
         "personality": (data.get("personality") or "").strip(),
         "values": _as_list(data.get("values")),
@@ -553,12 +672,20 @@ def entity_profile(sid: str) -> list[dict]:
     return out
 
 
-def views_on(sid: str, keys: list[str]) -> list[dict]:
+def views_on(sid: str, keys: list[str], language: str = "en") -> list[dict]:
     """What this person thinks of each country/organization in `keys`: from their own
     speeches on file first, else from their profile's partners and rivals."""
     from . import dossier, entities
     said = {e["key"]: e for e in entity_profile(sid)}
-    prof = dossier.PROFILES.get(sid) or {}
+    prof = {**(dossier.PROFILES.get(sid) or {}), **profile_edit(sid)}
+    if language == "ar" and not ({"partners", "frictions"} & set(profile_edit(sid))):
+        from .stakeholders_ar import AR
+        ar = AR.get(sid) or {}
+        # Same order as the English, so each Arabic label keeps its country.
+        notes = {lbl: a for k in ("partners", "frictions")
+                 for lbl, a in zip(prof.get(k, []), ar.get(k, []))}
+    else:
+        notes = {}
     side = {}
     for label in prof.get("partners", []):
         if (k := dossier.country_of(label)):
@@ -573,7 +700,8 @@ def views_on(sid: str, keys: list[str]) -> list[dict]:
             out.append({**entities.info(k), "tone": e["tone"], "counts": e["counts"],
                         "statements": len(e["statements"]), "source": "speeches"})
         elif k in side:
-            out.append({**entities.info(k), "tone": side[k][0], "source": "profile", "note": side[k][1]})
+            out.append({**entities.info(k), "tone": side[k][0], "source": "profile",
+                        "note": notes.get(side[k][1], side[k][1])})
     return out
 
 
@@ -610,9 +738,11 @@ def _matched(text: str, entries: list[str]) -> list[str]:
     return hits
 
 
-def _heuristic_one(text_lc: str, s: dict) -> dict:
+def _heuristic_one(text_lc: str, s: dict, language: str = "en") -> dict:
     sup = _matched(text_lc, s["supports"])
     opp = _matched(text_lc, s["opposes"])
+    if language == "ar":
+        return _heuristic_ar(s, sup, opp)
 
     if sup and opp:
         stance = "Mixed"
@@ -638,6 +768,28 @@ def _heuristic_one(text_lc: str, s: dict) -> dict:
     }
 
 
+def _heuristic_ar(s: dict, sup: list[str], opp: list[str]) -> dict:
+    """The keyword result worded in Arabic: matched items swapped for their Arabic text."""
+    loc = localized(s, "ar")
+    pick = lambda found, key: [loc[key][s[key].index(x)] if s[key].index(x) < len(loc[key]) else x for x in found]
+    sup_ar, opp_ar = pick(sup, "supports"), pick(opp, "opposes")
+    join = lambda items: items[0] if len(items) == 1 else "، ".join(items[:-1]) + " و" + items[-1]
+    if sup and opp:
+        stance, conf = "Mixed", min(85, 55 + 8 * (len(sup) + len(opp)))
+        reasoning = f"يُرجَّح أن يرحب بـ{join(sup_ar)}، لكنه يتحفظ على {join(opp_ar)}."
+    elif sup:
+        stance, conf = "Support", min(92, 55 + 12 * len(sup))
+        reasoning = f"يمس قضايا يؤيدها: {join(sup_ar)}."
+    elif opp:
+        stance, conf = "Oppose", min(92, 55 + 12 * len(opp))
+        reasoning = f"يمس أمورًا يعارضها: {join(opp_ar)}."
+    else:
+        stance, conf = "Neutral", 35
+        reasoning = "لا يتناول النص بوضوح الاهتمامات الأساسية لصاحب المصلحة هذا."
+    return {"id": s["id"], "name": loc["name"], "role": loc["role"], "stance": stance,
+            "confidence": conf, "reasoning": reasoning, "response": loc["responses"][0]}
+
+
 def _join(items: list[str]) -> str:
     items = [i.lower() for i in items]
     if len(items) == 1:
@@ -645,10 +797,10 @@ def _join(items: list[str]) -> str:
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
-def heuristic_react(text: str) -> dict:
+def heuristic_react(text: str, language: str = "en") -> dict:
     text_lc = " " + text.lower() + " "
     return {
-        "reactions": [_heuristic_one(text_lc, s) for s in STAKEHOLDERS],
+        "reactions": [_heuristic_one(text_lc, s, language) for s in STAKEHOLDERS],
         "method": "heuristic",
     }
 
@@ -827,6 +979,6 @@ def react(text: str, language: str = "en") -> dict:
                       and exc.response.status_code == 429
                       else f"{type(exc).__name__}: {exc}")[:300]
             print(f"[stakeholders] AI reactions failed, using keyword fallback: {reason}")
-    result = heuristic_react(text)
+    result = heuristic_react(text, language)
     result["fallback_reason"] = reason
     return result

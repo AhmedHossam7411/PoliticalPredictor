@@ -1,18 +1,22 @@
 <div class="page" [attr.dir]="t().dir">
-  <!-- Brand logos, pinned to the left of the page (outside the cards) -->
-  <div class="page-logos">
-    <img class="pl-logo pl-eydp" src="EYDP.png" alt="Egyptian Youth Diplomacy Program">
+  <!-- Top bar: Cortex at the top left, the Egyptian Youth Diplomacy Program logo centred -->
+  <div class="topbar">
+    <div class="brand-name"><span class="brand-en">Cortex</span><span class="brand-rule"></span><span class="brand-ar" lang="ar" dir="rtl">كورتكس</span></div>
+    <div class="pl-stack">
+      <img class="pl-logo pl-moys" src="moys-mark.png" alt="Ministry of Youth and Sports">
+      <img class="pl-logo pl-eydp" src="eydp-program.png" alt="Egyptian Youth Diplomacy Program">
+    </div>
+    <!-- Language and sign out, top right -->
+    <div class="header-actions top-actions" [attr.dir]="t().dir">
+      <button class="lang-btn" (click)="toggleLang()">🌐 {{ t().switchTo }}</button>
+      @if (authed()) { <button class="lang-btn" (click)="logout()">{{ t().logout }}</button> }
+    </div>
   </div>
 
   <!-- Login gate -->
   @if (!authed()) {
     <div class="login-wrap">
       <div class="login-card">
-        <div class="header-row">
-          <h1 class="brand-name"><span class="brand-en">Cortex</span><span class="brand-ar" lang="ar" dir="rtl">كورتكس</span></h1>
-          <button class="lang-btn" (click)="toggleLang()">🌐 {{ t().switchTo }}</button>
-        </div>
-
         <h2 class="login-title">{{ t().loginTitle }}</h2>
         <p class="sub">{{ t().loginSub }}</p>
 
@@ -49,13 +53,6 @@
   } @else {
 
   <header>
-    <div class="header-row">
-      <h1 class="brand-name"><span class="brand-en">Cortex</span><span class="brand-ar" lang="ar" dir="rtl">كورتكس</span></h1>
-      <div class="header-actions">
-        <button class="lang-btn" (click)="toggleLang()">🌐 {{ t().switchTo }}</button>
-        <button class="lang-btn" (click)="logout()">{{ t().logout }}</button>
-      </div>
-    </div>
     <nav class="nav">
       <button class="nav-item" [class.active]="page() === 'analyze'"
         (click)="page.set('analyze')">{{ t().navAnalyze }}</button>
@@ -176,15 +173,23 @@
     <section class="card">
       <h2>{{ t().panelHeading }} <span class="tag">{{ stakeholders().length }}</span></h2>
       <div class="sh-body">
-        <div class="sh-list">
-          @for (s of stakeholders(); track s.id) {
-            <span class="sh-chip" [class.custom]="s.custom">
-              <button class="sh-name" (click)="openDossier(s.id, s.name)" [title]="t().dzOpen">{{ s.name }}</button>
-              <button class="sh-x" (click)="deleteStakeholder(s)"
-                [title]="t().removeStakeholder" [attr.aria-label]="t().removeStakeholder + ': ' + s.name">×</button>
-            </span>
-          }
-        </div>
+        @for (g of stakeholderGroups(); track g.key; let gi = $index) {
+          <div class="sh-group">
+            <h3 class="sh-group-title">{{ gi + 1 }}. {{ t().shGroups[g.key] }} <span class="tag">{{ g.people.length }}</span></h3>
+            <ul class="sh-rows">
+              @for (s of g.people; track s.id) {
+                <li class="sh-row" [class.custom]="s.custom">
+                  <button class="sh-name" (click)="openDossier(s.id, s.name)" [title]="t().dzOpen">{{ s.name }}</button>
+                  <span class="sh-role" dir="auto">{{ s.role }}</span>
+                  <button class="sh-x" (click)="deleteStakeholder(s)"
+                    [title]="t().removeStakeholder" [attr.aria-label]="t().removeStakeholder + ': ' + s.name">×</button>
+                </li>
+              } @empty {
+                <li class="sh-empty muted">{{ t().shEmpty[g.key] }}</li>
+              }
+            </ul>
+          </div>
+        }
         @if (removedStakeholders().length) {
           <div class="sh-removed">
             <span class="muted">{{ t().removedStakeholders }}</span>
@@ -206,6 +211,11 @@
                 <input [ngModel]="nsName()" (ngModelChange)="nsName.set($event)"></label>
               <label class="field"><span>{{ t().fldRole }}</span>
                 <input [ngModel]="nsRole()" (ngModelChange)="nsRole.set($event)"></label>
+              <label class="field"><span>{{ t().fldGroup }}</span>
+                <select [ngModel]="nsCategory()" (ngModelChange)="nsCategory.set($event)">
+                  <option value="">{{ t().groupGuess }}</option>
+                  @for (g of shGroups; track g; let gi = $index) { <option [value]="g">{{ gi + 1 }}. {{ t().shGroups[g] }}</option> }
+                </select></label>
               <label class="field"><span>{{ t().fldValues }}</span>
                 <input [ngModel]="nsValues()" (ngModelChange)="nsValues.set($event)"
                   [placeholder]="t().csvHint"></label>
@@ -566,10 +576,10 @@
         @for (r of filteredReactions(); track r.id) {
           <div class="stake-card">
             <div class="stake-top">
-              <button class="stake-name sh-name" (click)="openDossier(r.id, r.name)" [title]="t().dzOpen">{{ r.name }}</button>
+              <button class="stake-name sh-name" (click)="openDossier(r.id, who(r).name)" [title]="t().dzOpen">{{ who(r).name }}</button>
               <span class="stance" [class]="stanceClass(r.stance)">{{ stanceLabel(r.stance) }}</span>
             </div>
-            <p class="stake-role">{{ r.role }}</p>
+            <p class="stake-role">{{ who(r).role }}</p>
             <div class="conf-bar"><div class="conf-fill" [style.width.%]="r.confidence"></div></div>
             <p class="stake-reason">{{ r.reasoning }}</p>
             <p class="stake-resp"><strong>{{ t().likelyResponse }}</strong> {{ r.response }}</p>
@@ -579,7 +589,7 @@
                 @for (v of r.views!; track v.key) {
                   @if (v.source === 'speeches') {
                     <button class="ent-chip small" [class]="'ent-chip small ' + v.tone" [title]="viewTitle(v)"
-                      (click)="openEntity(r.id, r.name, v.key)">{{ entName(v) }} · {{ t().tones[v.tone] }}</button>
+                      (click)="openEntity(r.id, who(r).name, v.key)">{{ entName(v) }} · {{ t().tones[v.tone] }}</button>
                   } @else {
                     <span class="ent-chip small" [class]="'ent-chip small static ' + v.tone" [title]="viewTitle(v)">{{ entName(v) }} · {{ t().tones[v.tone] }}</span>
                   }
@@ -642,13 +652,61 @@
               </div>
             }
           </div>
+          @if (dossier() && !editing()) {
+            <button class="ghost ed-btn" (click)="startEdit()">✎ {{ t().edBtn }}</button>
+          }
           <button id="dz-close" class="dz-close" (click)="closeDossier()" [attr.aria-label]="t().close">×</button>
         </header>
+        @if (dossier()?.person?.edited && !editing()) { <p class="ed-note">{{ t().edEditedNote }}</p> }
 
         @if (dossierLoading()) { <p class="muted dz-pad">{{ t().dzLoading }}</p> }
         @if (dossierError()) { <p class="error dz-pad">{{ dossierError() }}</p> }
 
         @if (dossier(); as d) {
+          @if (editing()) {
+            <div class="dz-pad ed-form">
+              <h3>{{ t().edHeading }}</h3>
+              <p class="muted">{{ t().edIntro }}</p>
+              <div class="ed-grid">
+                <label class="field"><span>{{ t().fldName }} *</span><input [(ngModel)]="ed['name']"></label>
+                <label class="field"><span>{{ t().fldRole }}</span><input [(ngModel)]="ed['role']" dir="auto"></label>
+                <label class="field"><span>{{ t().fldGroup }}</span>
+                  <select [(ngModel)]="ed['category']">
+                    @for (g of shGroups; track g; let gi = $index) { <option [value]="g">{{ gi + 1 }}. {{ t().shGroups[g] }}</option> }
+                  </select></label>
+                <label class="field"><span>{{ t().dzType }} <small class="muted">{{ t().edOnePerLine }}</small></span>
+                  <textarea rows="3" [(ngModel)]="ed['personality_type']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().dzValues }} <small class="muted">{{ t().edOnePerLine }}</small></span>
+                  <textarea rows="3" [(ngModel)]="ed['values']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().edPersonality }}</span>
+                  <textarea rows="3" [(ngModel)]="ed['personality']" dir="auto"></textarea></label>
+                <label class="field wide"><span>{{ t().dzBackground }}</span>
+                  <textarea rows="4" [(ngModel)]="ed['background']" dir="auto"></textarea></label>
+                <label class="field wide"><span>{{ t().dzStyle }}</span>
+                  <textarea rows="4" [(ngModel)]="ed['leadership_style']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().dzMemberships }} <small class="muted">{{ t().edOnePerLine }}</small></span>
+                  <textarea rows="4" [(ngModel)]="ed['memberships']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().dzPartners }} <small class="muted">{{ t().edCountryFirst }}</small></span>
+                  <textarea rows="4" [(ngModel)]="ed['partners']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().dzFrictions }} <small class="muted">{{ t().edCountryFirst }}</small></span>
+                  <textarea rows="4" [(ngModel)]="ed['frictions']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().dzSupports }} <small class="muted">{{ t().edOnePerLine }}</small></span>
+                  <textarea rows="4" [(ngModel)]="ed['supports']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().dzOpposes }} <small class="muted">{{ t().edOnePerLine }}</small></span>
+                  <textarea rows="4" [(ngModel)]="ed['opposes']" dir="auto"></textarea></label>
+                <label class="field"><span>{{ t().dzConcerns }} <small class="muted">{{ t().edOnePerLine }}</small></span>
+                  <textarea rows="4" [(ngModel)]="ed['concerns']" dir="auto"></textarea></label>
+              </div>
+              @if (editError()) { <p class="error">{{ editError() }}</p> }
+              <div class="ed-actions">
+                <button (click)="saveEdit()" [disabled]="editBusy()">{{ editBusy() ? t().saving : t().edSave }}</button>
+                <button class="ghost" (click)="editing.set(false)" [disabled]="editBusy()">{{ t().cx['cancel'] }}</button>
+                @if (d.person.edited) {
+                  <button class="ghost ed-reset" (click)="resetEdit()" [disabled]="editBusy()">{{ t().edReset }}</button>
+                }
+              </div>
+            </div>
+          } @else {
           <div class="dz-body">
             <div class="dz-col">
               @if (!d.profile) { <p class="fallback-note">{{ t().dzCustom }}</p> }
@@ -719,13 +777,13 @@
                   <h4>{{ t().dzPartners }}</h4>
                   <div class="dz-chips">@for (v of d.profile.partners; track v.label) {
                     @if (v.country) {
-                      <button class="dz-chip ally link" (click)="openMentions(v.country, v.country_name!)" [title]="t().mzOpen">{{ v.label }}</button>
+                      <button class="dz-chip ally link" (click)="openMentions(v.country, relCountry(v))" [title]="t().mzOpen">{{ v.label }}</button>
                     } @else { <span class="dz-chip ally">{{ v.label }}</span> }
                   }</div>
                   <h4>{{ t().dzFrictions }}</h4>
                   <div class="dz-chips">@for (v of d.profile.frictions; track v.label) {
                     @if (v.country) {
-                      <button class="dz-chip friction link" (click)="openMentions(v.country, v.country_name!)" [title]="t().mzOpen">{{ v.label }}</button>
+                      <button class="dz-chip friction link" (click)="openMentions(v.country, relCountry(v))" [title]="t().mzOpen">{{ v.label }}</button>
                     } @else { <span class="dz-chip friction">{{ v.label }}</span> }
                   }</div>
                   <p class="muted dz-hint">{{ t().mzHint }}</p>
@@ -752,9 +810,9 @@
             </div>
 
             <div class="dz-col">
-              @if (d.profile) {
+              @if (d.profile?.cc) {
                 <section>
-                  <h3>{{ t().dzDomestic.replace('{country}', d.profile.country) }}</h3>
+                  <h3>{{ t().dzDomestic.replace('{country}', d.profile!.country) }}</h3>
                   <ng-container *ngTemplateOutlet="newsList; context: { $implicit: d.news.domestic }"></ng-container>
                 </section>
               }
@@ -768,6 +826,7 @@
               </section>
             </div>
           </div>
+          }
           <footer class="dz-foot">{{ t().dzNote }}
             @if (d.errors.length) { {{ t().dzPartial }} }</footer>
         }
