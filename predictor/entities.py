@@ -1,4 +1,7 @@
-"""Countries and organizations named in a speech, and how the speaker talks about them.
+"""Countries, organizations and places named in a speech, and how the speaker talks about them.
+
+Places are continents, regions, seas (and rivers), straits, and trade routes, canals
+and corridors.
 
 `find(text)` gives every mention with its character span (for highlighting);
 `summarize(text, tones)` groups them per country/organization with the sentences
@@ -77,6 +80,84 @@ _ORGS = {
     "MB": ("Muslim Brotherhood", "الإخوان المسلمون", ["Muslim Brotherhood"], ["الإخوان المسلمين", "الإخوان المسلمون", "الإخوان", "جماعة الإخوان"]),
 }
 
+
+# Places: key -> (English name, Arabic name, kind, English forms, Arabic forms).
+# kind: continent, region, sea, strait, route (trade routes, canals and corridors).
+_PLACES = {
+    # Continents
+    "C-AF": ("Africa", "أفريقيا", "continent", ["Africa", "African continent"], ["أفريقيا", "إفريقيا", "القارة الأفريقية", "القارة الإفريقية", "القارة السمراء"]),
+    "C-AS": ("Asia", "آسيا", "continent", ["Asia", "Asian continent"], ["آسيا", "القارة الآسيوية"]),
+    "C-EU": ("Europe", "أوروبا", "continent", ["Europe", "European continent"], ["أوروبا", "القارة الأوروبية", "القارة العجوز"]),
+    "C-NA": ("North America", "أمريكا الشمالية", "continent", ["North America"], ["أمريكا الشمالية"]),
+    "C-SA": ("South America", "أمريكا الجنوبية", "continent", ["South America"], ["أمريكا الجنوبية"]),
+    "C-LA": ("Latin America", "أمريكا اللاتينية", "continent", ["Latin America"], ["أمريكا اللاتينية"]),
+    "C-OC": ("Oceania", "أوقيانوسيا", "continent", ["Oceania"], ["أوقيانوسيا"]),
+    "C-AN": ("Antarctica", "القارة القطبية الجنوبية", "continent", ["Antarctica"], ["القارة القطبية الجنوبية", "أنتاركتيكا"]),
+    # Regions
+    "R-ME": ("Middle East", "الشرق الأوسط", "region", ["Middle East", "MENA"], ["الشرق الأوسط"]),
+    "R-HOA": ("Horn of Africa", "القرن الأفريقي", "region", ["Horn of Africa"], ["القرن الأفريقي", "القرن الإفريقي"]),
+    "R-SAHEL": ("Sahel", "منطقة الساحل", "region", ["Sahel"], ["منطقة الساحل", "الساحل الأفريقي", "الساحل والصحراء"]),
+    "R-LEV": ("Levant", "بلاد الشام", "region", ["Levant"], ["بلاد الشام", "المشرق العربي"]),
+    "R-MAG": ("Maghreb", "المغرب العربي", "region", ["Maghreb", "North Africa"], ["المغرب العربي", "شمال أفريقيا", "شمال إفريقيا"]),
+    "R-NILE": ("Nile Basin", "حوض النيل", "region", ["Nile Basin"], ["حوض النيل", "دول حوض النيل"]),
+    "R-SINAI": ("Sinai", "سيناء", "region", ["Sinai"], ["سيناء", "شبه جزيرة سيناء"]),
+    # Seas, oceans, gulfs and rivers
+    "S-MED": ("Mediterranean Sea", "البحر المتوسط", "sea", ["Mediterranean Sea", "Mediterranean", "Eastern Mediterranean"],
+              ["البحر المتوسط", "البحر الأبيض المتوسط", "شرق المتوسط", "حوض المتوسط"]),
+    "S-RED": ("Red Sea", "البحر الأحمر", "sea", ["Red Sea"], ["البحر الأحمر"]),
+    "S-BLACK": ("Black Sea", "البحر الأسود", "sea", ["Black Sea"], ["البحر الأسود"]),
+    "S-CASP": ("Caspian Sea", "بحر قزوين", "sea", ["Caspian Sea", "Caspian"], ["بحر قزوين"]),
+    "S-ARAB": ("Arabian Sea", "بحر العرب", "sea", ["Arabian Sea"], ["بحر العرب"]),
+    "S-GULF": ("Arabian (Persian) Gulf", "الخليج العربي", "sea", ["Arabian Gulf", "Persian Gulf"], ["الخليج العربي", "الخليج الفارسي"]),
+    "S-ADEN": ("Gulf of Aden", "خليج عدن", "sea", ["Gulf of Aden"], ["خليج عدن"]),
+    "S-OMAN": ("Gulf of Oman", "خليج عمان", "sea", ["Gulf of Oman"], ["خليج عمان"]),
+    "S-SUEZG": ("Gulf of Suez", "خليج السويس", "sea", ["Gulf of Suez"], ["خليج السويس"]),
+    "S-AQABA": ("Gulf of Aqaba", "خليج العقبة", "sea", ["Gulf of Aqaba", "Gulf of Eilat"], ["خليج العقبة"]),
+    "S-AEGEAN": ("Aegean Sea", "بحر إيجه", "sea", ["Aegean Sea", "Aegean"], ["بحر إيجه"]),
+    "S-ATL": ("Atlantic Ocean", "المحيط الأطلسي", "sea", ["Atlantic Ocean", "Atlantic"], ["المحيط الأطلسي", "المحيط الأطلنطي"]),
+    "S-IND": ("Indian Ocean", "المحيط الهندي", "sea", ["Indian Ocean"], ["المحيط الهندي"]),
+    "S-PAC": ("Pacific Ocean", "المحيط الهادئ", "sea", ["Pacific Ocean", "Pacific", "Indo-Pacific"], ["المحيط الهادئ", "المحيط الهادي", "المحيطين الهندي والهادئ"]),
+    "S-ARCTIC": ("Arctic", "القطب الشمالي", "sea", ["Arctic", "Arctic Ocean"], ["القطب الشمالي", "المحيط المتجمد الشمالي"]),
+    "S-SCS": ("South China Sea", "بحر الصين الجنوبي", "sea", ["South China Sea"], ["بحر الصين الجنوبي"]),
+    "S-BALTIC": ("Baltic Sea", "بحر البلطيق", "sea", ["Baltic Sea", "Baltic"], ["بحر البلطيق"]),
+    "S-NILE": ("Nile", "نهر النيل", "sea", ["Nile", "River Nile", "Nile River", "Blue Nile"], ["نهر النيل", "النيل", "النيل الأزرق"]),
+    "S-EUPH": ("Euphrates and Tigris", "دجلة والفرات", "sea", ["Euphrates", "Tigris"], ["الفرات", "دجلة", "نهر الفرات", "نهر دجلة"]),
+    # Straits
+    "T-HORMUZ": ("Strait of Hormuz", "مضيق هرمز", "strait", ["Strait of Hormuz", "Hormuz"], ["مضيق هرمز", "هرمز"]),
+    "T-BAB": ("Bab el-Mandeb", "باب المندب", "strait", ["Bab el-Mandeb", "Bab al-Mandab", "Bab-el-Mandeb"], ["باب المندب", "مضيق باب المندب"]),
+    "T-GIB": ("Strait of Gibraltar", "مضيق جبل طارق", "strait", ["Strait of Gibraltar", "Gibraltar"], ["مضيق جبل طارق", "جبل طارق"]),
+    "T-BOSP": ("Bosphorus", "مضيق البوسفور", "strait", ["Bosphorus", "Bosporus", "Turkish Straits"], ["مضيق البوسفور", "البوسفور", "المضائق التركية"]),
+    "T-DARD": ("Dardanelles", "مضيق الدردنيل", "strait", ["Dardanelles"], ["مضيق الدردنيل", "الدردنيل"]),
+    "T-MALACCA": ("Strait of Malacca", "مضيق ملقا", "strait", ["Strait of Malacca", "Malacca Strait"], ["مضيق ملقا", "مضيق ملقة"]),
+    "T-TAIWAN": ("Taiwan Strait", "مضيق تايوان", "strait", ["Taiwan Strait"], ["مضيق تايوان"]),
+    "T-TIRAN": ("Strait of Tiran", "مضيق تيران", "strait", ["Strait of Tiran", "Straits of Tiran", "Tiran"], ["مضيق تيران", "تيران"]),
+    # Trade routes, canals and corridors
+    "W-SUEZ": ("Suez Canal", "قناة السويس", "route", ["Suez Canal", "Suez"], ["قناة السويس"]),
+    "W-SCZONE": ("Suez Canal Economic Zone", "المنطقة الاقتصادية لقناة السويس", "route", ["Suez Canal Economic Zone", "SCZone"],
+                 ["المنطقة الاقتصادية لقناة السويس"]),
+    "W-PANAMA": ("Panama Canal", "قناة بنما", "route", ["Panama Canal"], ["قناة بنما"]),
+    "W-BRI": ("Belt and Road Initiative", "مبادرة الحزام والطريق", "route",
+              ["Belt and Road Initiative", "Belt and Road", "BRI", "New Silk Road"], ["مبادرة الحزام والطريق", "الحزام والطريق", "طريق الحرير الجديد"]),
+    "W-SILK": ("Silk Road", "طريق الحرير", "route", ["Silk Road"], ["طريق الحرير"]),
+    "W-IMEC": ("India–Middle East–Europe Economic Corridor", "الممر الاقتصادي الهند-الشرق الأوسط-أوروبا", "route",
+               ["India-Middle East-Europe Economic Corridor", "India–Middle East–Europe Economic Corridor", "IMEC"],
+               ["الممر الاقتصادي بين الهند والشرق الأوسط وأوروبا", "الممر الاقتصادي الهندي", "ممر الهند والشرق الأوسط وأوروبا"]),
+    "W-INSTC": ("International North–South Transport Corridor", "ممر النقل الدولي بين الشمال والجنوب", "route",
+                ["North-South Transport Corridor", "North–South Transport Corridor", "INSTC"], ["ممر الشمال والجنوب", "ممر النقل بين الشمال والجنوب"]),
+    "W-DEVROAD": ("Development Road (Iraq)", "طريق التنمية", "route", ["Development Road"], ["طريق التنمية"]),
+    "W-ZANG": ("Zangezur Corridor", "ممر زنغزور", "route", ["Zangezur Corridor", "Zangezur"], ["ممر زنغزور", "ممر زنكزور"]),
+    "W-PHILA": ("Philadelphi Corridor", "محور فيلادلفيا", "route", ["Philadelphi Corridor", "Philadelphi Route", "Philadelphi"],
+                ["محور فيلادلفيا", "ممر فيلادلفيا", "محور صلاح الدين"]),
+    "W-NETZ": ("Netzarim Corridor", "محور نتساريم", "route", ["Netzarim Corridor", "Netzarim"], ["محور نتساريم", "ممر نتساريم"]),
+    "W-RAFAH": ("Rafah Crossing", "معبر رفح", "route", ["Rafah Crossing", "Rafah border crossing"], ["معبر رفح"]),
+    "W-LOBITO": ("Lobito Corridor", "ممر لوبيتو", "route", ["Lobito Corridor"], ["ممر لوبيتو"]),
+    "W-NSR": ("Northern Sea Route", "طريق البحر الشمالي", "route", ["Northern Sea Route"], ["طريق البحر الشمالي"]),
+    "W-CAPE": ("Cape of Good Hope route", "رأس الرجاء الصالح", "route", ["Cape of Good Hope"], ["رأس الرجاء الصالح"]),
+    "W-SUMED": ("SUMED pipeline", "خط سوميد", "route", ["SUMED", "Sumed pipeline"], ["خط سوميد", "سوميد"]),
+    "W-EASTMED": ("EastMed Gas Forum", "منتدى غاز شرق المتوسط", "route", ["East Mediterranean Gas Forum", "EastMed Gas Forum", "EMGF"],
+                  ["منتدى غاز شرق المتوسط"]),
+}
+
 ENTITIES: dict[str, dict] = {}
 for _k, (_en, _ar, _ef, _af) in {**COUNTRIES, **_EXTRA_COUNTRIES}.items():
     ENTITIES[_k] = {"name": _en, "name_ar": _ar, "kind": "organization" if _k == "EU" else "country",
@@ -85,6 +166,14 @@ for _k, (_en, _ar, _ef, _af) in _ORGS.items():
     ENTITIES[_k] = {"name": _en, "name_ar": _ar, "kind": "organization", "en": _ef, "ar": _af}
 # "Palestine" lists "the occupation" for headlines; in a speech that names Israel.
 ENTITIES["IL"]["ar"] = [f for f in ENTITIES["IL"]["ar"] if f != "الاحتلال"]
+for _k, (_en, _ar, _kind, _ef, _af) in _PLACES.items():
+    ENTITIES[_k] = {"name": _en, "name_ar": _ar, "kind": _kind, "en": _ef, "ar": _af}
+# In a speech "Europe" is the continent; the European Union keeps its own names.
+ENTITIES["EU"]["en"] = ["European Union", "EU", "E.U."]
+ENTITIES["EU"]["ar"] = ["الاتحاد الأوروبي", "الاتحاد الاوروبي"]
+ENTITIES["C-EU"]["en"] += ["European"]
+ENTITIES["C-AF"]["en"] += ["African"]
+ENTITIES["C-AS"]["en"] += ["Asian"]
 
 
 def _en_regex() -> list[tuple[re.Pattern, str]]:

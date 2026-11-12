@@ -492,3 +492,4 @@ button.tick.wrong.on { background: #dc2626; border-color: #dc2626; color: #fff; 
 .cx-ai { display: inline-block; margin-bottom: 0.3rem; }
 .cx-ai.saved { background: #dcfce7; color: #166534; }
 .cx-memory { font-size: 0.82rem; color: #166534; background: #ecfdf3; border-radius: var(--radius); padding: 0.35rem 0.55rem; }
+.cx-whole { display: inline-flex; align-items: center; gap: 0.15rem; }

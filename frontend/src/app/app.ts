@@ -1,4 +1,4 @@
-import { Component, inject, signal, computed } from '@angular/core';
+import { Component, inject, signal, computed, effect } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
@@ -78,7 +78,8 @@ interface HighlightPiece { text: string; style: string; title: string; ent?: boo
 // A highlight with its context-check state: left out, or a country/organization name.
 interface MarkSpan extends WordSpan { ignored?: boolean; ent?: string; }
 type Tone = 'positive' | 'negative' | 'mixed' | 'neutral';
-interface EntityRef { key: string; name: string; name_ar: string; kind: 'country' | 'organization'; }
+interface EntityRef { key: string; name: string; name_ar: string;
+  kind: 'country' | 'organization' | 'continent' | 'region' | 'sea' | 'strait' | 'route'; }
 interface EntitySpan { start: number; end: number; key: string; }
 interface EntityStatement { sentence: number; text: string; tone: Tone; source: string;
   speech?: string; added?: string | null; }
@@ -94,7 +95,7 @@ interface ToneDecision { sentence: number; entity: string; tone: string; source?
 // A trait added for a whole sentence, or (with start/end/text) for one part of it.
 interface AddDecision { sentence: number; label: string; start?: number; end?: number; text?: string; }
 interface Decisions { ignore: number[]; count: number[]; confirm: number[]; add: AddDecision[];
-  tones: ToneDecision[]; }
+  tones: ToneDecision[]; noWhole?: number[]; }
 interface AiJob { id: string; status: 'running' | 'done' | 'failed' | 'cancelled'; done: number; total: number;
   decisions: { ignore: number[]; count?: number[]; confirm?: number[]; add: AddDecision[]; tones: ToneDecision[] };
   // reused: sentences filled in from saved decisions; examples: saved sentences shown to Karnak.
@@ -539,6 +540,7 @@ export class App {
     for (const a of ai.add) {
       const k = `a:${a.sentence}:${a.label}:${a.start ?? ''}`;
       if (touched.has(a.sentence) || mark.has(k)) continue;
+      if (a.start === undefined && next.noWhole?.includes(a.sentence)) continue;
       mark.add(k);
       if (!next.add.some((x) => x.sentence === a.sentence && x.label === a.label && x.start === a.start)) {
         next.add.push(a); changed = true;
@@ -600,6 +602,20 @@ export class App {
       : { ...d, ignore: [...new Set([...d.ignore, ...ids])], count: d.count.filter((x) => !all.includes(x)),
           confirm: d.confirm.filter((x) => !all.includes(x)), add: d.add.filter((a) => a.sentence !== s.i) });
   }
+
+  /** The whole-sentence option is off for this sentence: only word and part choices count. */
+  wholeOff(s: ReviewSentence): boolean { return !!this.decisions().noWhole?.includes(s.i); }
+
+  dropWhole(s: ReviewSentence) {
+    this.change(s.i, (d) => ({ ...d, noWhole: [...new Set([...(d.noWhole ?? []), s.i])],
+      add: d.add.filter((a) => !(a.sentence === s.i && a.start === undefined)) }));
+  }
+
+  undoWhole(s: ReviewSentence) {
+    this.change(s.i, (d) => ({ ...d, noWhole: (d.noWhole ?? []).filter((x) => x !== s.i) }));
+  }
+
+  kindName(kind: string): string { return this.t().cx['kind_' + kind] ?? ''; }
 
   addsOf(s: ReviewSentence) { return this.decisions().add.filter((a) => a.sentence === s.i && a.start === undefined); }
 
@@ -781,9 +797,11 @@ export class App {
 
   constructor() {
     // Resume an existing session if a token is already stored.
+    effect(() => this.saveState());
     if (sessionStorage.getItem('pp_token')) {
       this.authed.set(true);
       this.loadInitialData();
+      this.restoreState();
     } else {
       this.loadCaptcha();
     }
@@ -1066,6 +1084,7 @@ export class App {
 
   logout() {
     sessionStorage.removeItem('pp_token');
+    sessionStorage.removeItem(App.STATE_KEY);
     location.reload();  // fresh login screen (re-renders the captcha cleanly)
   }
 
@@ -1166,6 +1185,8 @@ export class App {
     this.llm.set(null);
     this.stake.set(null);
     this.aiQueued.set('');
+    this.llmJob.set(''); this.stakeJob.set('');
+    this.llmLoading.set(false); this.stakeLoading.set(false);
     this.stopAi(true);
     this.review.set(null);
     this.decisions.set(noDecisions());
@@ -1207,9 +1228,8 @@ export class App {
     if (!text.trim()) return;
     this.stanceFilter.set('All');
     this.stakeLoading.set(true); this.error.set('');
-    this.http.post<StakeResult>(`${API}/analyze/stakeholders`,
-      { text, language: this.lang() }).subscribe({
-      next: (r) => { this.stake.set(r.reactions.length ? r : null); this.stakeLoading.set(false); },
+    this.http.post<{ job: string }>(`${API}/jobs/stakeholders`, { text, language: this.lang() }).subscribe({
+      next: ({ job }) => { this.stakeJob.set(job); this.pollJob<StakeResult>(job, 'stake', text); },
       error: (e) => { this.error.set(this.msg(e)); this.stakeLoading.set(false); },
     });
   }
@@ -1226,11 +1246,93 @@ export class App {
   runLlm(text: string = this.text()) {
     if (!text.trim()) return;
     this.llmLoading.set(true); this.error.set('');
-    this.http.post<LlmResult>(`${API}/analyze/llm`,
-      { text, language: this.lang() }).subscribe({
-      next: (r) => { this.llm.set(r); this.llmLoading.set(false); },
+    this.http.post<{ job: string }>(`${API}/jobs/llm`, { text, language: this.lang() }).subscribe({
+      next: ({ job }) => { this.llmJob.set(job); this.pollJob<LlmResult>(job, 'llm', text); },
       error: (e) => { this.error.set(this.msg(e)); this.llmLoading.set(false); },
     });
+  }
+
+  // Server jobs for the AI traits and reactions; their ids survive a page refresh.
+  llmJob = signal('');
+  stakeJob = signal('');
+
+  private pollJob<T>(id: string, which: 'llm' | 'stake', text: string, wait = 3000) {
+    setTimeout(() => {
+      const current = which === 'llm' ? this.llmJob() : this.stakeJob();
+      if (current !== id || this.submittedText() !== text) return;  // replaced by a newer run
+      this.http.get<{ status: string; result: T | null; error: string; code: number }>(`${API}/jobs/${id}`).subscribe({
+        next: (j) => {
+          if (j.status === 'running') { this.pollJob<T>(id, which, text); return; }
+          const failed = j.status !== 'done';
+          if (which === 'llm') {
+            if (!failed) this.llm.set(j.result as LlmResult);
+            this.llmLoading.set(false); this.llmJob.set('');
+          } else {
+            const r = j.result as StakeResult | null;
+            if (!failed && r) this.stake.set(r.reactions.length ? r : null);
+            this.stakeLoading.set(false); this.stakeJob.set('');
+          }
+          if (failed) this.error.set(this.msg({ status: j.code, error: { detail: j.error } }));
+        },
+        error: (e) => {
+          if (which === 'llm') { this.llmLoading.set(false); this.llmJob.set(''); }
+          else { this.stakeLoading.set(false); this.stakeJob.set(''); }
+          this.error.set(this.msg(e));
+        },
+      });
+    }, wait);
+  }
+
+  // --- Keep the analysis across page refreshes (this browser tab only) -------
+  private static readonly STATE_KEY = 'cortex_state';
+  private restoring = false;
+
+  private saveState() {
+    if (this.restoring) return;
+    const state = {
+      text: this.text(), submitted: this.submittedText(), page: this.page(),
+      speech: this.analyzedSpeech(), mixed: this.analyzedMixed(), uploaded: this.uploadedName(),
+      llm: this.llm(), stake: this.stake(), llmJob: this.llmJob(), stakeJob: this.stakeJob(),
+      decisions: this.decisions(), fromAi: [...this.fromAi()], touched: [...this.touched()],
+      aiJob: this.aiJob(), aiQueued: this.aiQueued(),
+    };
+    try { sessionStorage.setItem(App.STATE_KEY, JSON.stringify(state)); }
+    catch { /* too big or storage off: the analysis still works, it just won't survive a refresh */ }
+  }
+
+  /** After a refresh: put the analysis back and pick up whatever was still running. */
+  private restoreState() {
+    let st: any = null;
+    try { st = JSON.parse(sessionStorage.getItem(App.STATE_KEY) || 'null'); } catch { st = null; }
+    if (!st?.submitted) { if (st?.text) this.text.set(st.text); if (st?.page) this.page.set(st.page); return; }
+    this.restoring = true;
+    const text: string = st.submitted;
+    this.text.set(st.text ?? text); this.submittedText.set(text); this.page.set(st.page ?? 'analyze');
+    this.analyzedSpeech.set(st.speech ?? ''); this.analyzedMixed.set(!!st.mixed); this.uploadedName.set(st.uploaded ?? '');
+    this.llm.set(st.llm ?? null); this.stake.set(st.stake ?? null);
+    this.decisions.set({ ...noDecisions(), ...(st.decisions ?? {}) });
+    this.fromAi.set(new Set(st.fromAi ?? [])); this.touched.set(new Set(st.touched ?? []));
+    this.aiJob.set(st.aiJob ?? null); this.aiQueued.set(st.aiQueued ?? '');
+    this.restoring = false;
+    // The word scorer and the review are quick to redo; the decisions are kept.
+    this.dictText.set(text); this.dictLoading.set(true);
+    this.http.post<DictResult>(`${API}/analyze`, { text }).subscribe({
+      next: (r) => {
+        this.dict.set(r); this.dictLoading.set(false);
+        this.http.post<Review>(`${API}/context/review`, { text }).subscribe({
+          next: (rv) => {
+            this.review.set(rv);
+            this.rescore();
+            const j = this.aiJob();
+            if (j?.status === 'running' && j.id) this.pollAi(j.id, text, 500);
+            else this.releaseAi();
+          },
+        });
+      },
+      error: (e) => { this.dictLoading.set(false); this.error.set(this.msg(e)); },
+    });
+    if (st.llmJob) { this.llmJob.set(st.llmJob); this.llmLoading.set(true); this.pollJob<LlmResult>(st.llmJob, 'llm', text, 500); }
+    if (st.stakeJob) { this.stakeJob.set(st.stakeJob); this.stakeLoading.set(true); this.pollJob<StakeResult>(st.stakeJob, 'stake', text, 500); }
   }
 
   // --- PDF (password-gated) ----------------------------------------------

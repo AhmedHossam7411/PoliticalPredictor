@@ -366,6 +366,53 @@ def analyze_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_a
     return out
 
 
+# --- Background jobs -------------------------------------------------------
+# Karnak can take many minutes; run the AI steps on the server so a page refresh
+# or another tab doesn't lose them. The page polls GET /jobs/{id}.
+import threading as _threading
+import time as _time
+import uuid as _uuid
+
+_JOBS: dict[str, dict] = {}
+
+
+def _start_job(kind: str, fn, *args) -> str:
+    job = {"id": _uuid.uuid4().hex[:12], "kind": kind, "status": "running",
+           "started": _time.time(), "result": None, "error": "", "code": 0}
+    for old in sorted(_JOBS, key=lambda k: _JOBS[k]["started"])[:-20]:
+        _JOBS.pop(old, None)
+    _JOBS[job["id"]] = job
+
+    def run():
+        try:
+            job["result"] = fn(*args)
+            job["status"] = "done"
+        except HTTPException as exc:
+            job.update(status="failed", error=str(exc.detail), code=exc.status_code)
+        except Exception as exc:  # keep the server up; report what went wrong
+            job.update(status="failed", error=f"{type(exc).__name__}: {exc}"[:300], code=500)
+    _threading.Thread(target=run, daemon=True).start()
+    return job["id"]
+
+
+@app.post("/jobs/llm")
+def job_llm(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
+    return {"job": _start_job("llm", analyze_llm, req, user)}
+
+
+@app.post("/jobs/stakeholders")
+def job_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
+    return {"job": _start_job("stakeholders", analyze_stakeholders, req, user)}
+
+
+@app.get("/jobs/{job_id}")
+def job_status(job_id: str, user: str = Depends(auth.require_auth)) -> dict:
+    job = _JOBS.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="No such job (the server may have restarted).")
+    return job
+
+
 @app.post("/analyze/llm")
 def analyze_llm(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
     """Semantic LTA scoring by the local AI (reads meaning, not keywords)."""

@@ -377,7 +377,7 @@
             @for (e of d.entity_summary!; track e.key) {
               <button class="ent-chip" [class]="'ent-chip ' + e.tone" [class.open]="entOpen() === e.key"
                 (click)="entOpen.set(entOpen() === e.key ? '' : e.key)">
-                {{ entName(e) }} <span class="ent-meta">{{ t().tones[e.tone] }} · {{ entTimes(e.count) }}</span></button>
+                {{ entName(e) }} <span class="ent-meta">{{ kindName(e.kind) }} · {{ t().tones[e.tone] }} · {{ entTimes(e.count) }}</span></button>
             }
           </div>
           @for (e of d.entity_summary!; track e.key) {
@@ -478,10 +478,17 @@
                     <span class="cx-add part"><q dir="auto">{{ a.text }}</q> → {{ codeName(a.label) }}
                       <button class="sh-x" (click)="removePart(s, a)" [attr.aria-label]="t().removeStakeholder">×</button></span>
                   }
-                  <select #pick class="cx-select" (change)="addTrait(s, pick.value); pick.value = ''">
-                    <option value="">{{ t().cx['addTrait'] }}</option>
-                    @for (c of cxCodes; track c) { <option [value]="c">{{ c }} · {{ t().cxCodes[c] }}</option> }
-                  </select>
+                  @if (!wholeOff(s)) {
+                    <span class="cx-whole">
+                      <select #pick class="cx-select" (change)="addTrait(s, pick.value); pick.value = ''">
+                        <option value="">{{ t().cx['addTrait'] }}</option>
+                        @for (c of cxCodes; track c) { <option [value]="c">{{ c }} · {{ t().cxCodes[c] }}</option> }
+                      </select>
+                      <button class="sh-x" (click)="dropWhole(s)" [title]="t().cx['wholeOffTip']" [attr.aria-label]="t().cx['wholeOffTip']">×</button>
+                    </span>
+                  } @else {
+                    <button class="ghost cx-btn" (click)="undoWhole(s)" [title]="t().cx['wholeOnTip']">{{ t().cx['wholeOn'] }}</button>
+                  }
                   @for (e of s.entities; track e.key) {
                     <span class="tone-set">{{ t().cx['toneFor'].replace('{name}', entName(e)) }}
                       @for (tn of ['positive', 'negative', 'neutral']; track tn) {
@@ -699,7 +706,7 @@
                   <div class="dz-chips">
                     @for (e of d.entities!; track e.key) {
                       <button class="ent-chip" [class]="'ent-chip ' + e.tone" (click)="openEntity(d.id, dossierName(), e.key)">
-                        {{ entName(e) }} <span class="ent-meta">{{ t().tones[e.tone] }} · {{ entTimes(e.count) }}</span></button>
+                        {{ entName(e) }} <span class="ent-meta">{{ kindName(e.kind) }} · {{ t().tones[e.tone] }} · {{ entTimes(e.count) }}</span></button>
                     }
                   </div>
                 } @else { <p class="muted">{{ t().cx['dzEntitiesNone'] }}</p> }
