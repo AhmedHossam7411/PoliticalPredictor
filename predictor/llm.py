@@ -49,7 +49,8 @@ class Stopped(Exception):
 STOPPED_MESSAGE = "The AI was stopped by hand."
 _stop_count = 0           # goes up by one each time Stop AI is pressed
 _local = threading.local()  # the stop count when this thread's job began
-_live: set = set()        # connections to Karnak that are open right now
+_live: dict = {}          # connections to Karnak that are open right now -> their job id
+_cancelled: set = set()   # jobs replaced by a newer one (see cancel_job)
 _live_lock = threading.Lock()
 
 
@@ -91,22 +92,29 @@ def progress(job_id: str, expected_out: int) -> dict:
         return {"phase": "reading"}
     total = int(slot.get("n_prompt_tokens") or 0)
     cached = int(slot.get("n_prompt_tokens_cache") or 0)
-    done = int(slot.get("n_prompt_tokens_processed") or 0)
+    done = real_done = int(slot.get("n_prompt_tokens_processed") or 0)
     written = int(((slot.get("next_token") or [{}])[0]).get("n_decoded") or 0)
     to_read = max(0, total - cached)
     reading = written == 0 and done < to_read
+    if reading:
+        # Karnak only updates its "read" counter after each 2,048-token chunk, so a short
+        # read sits at 0 until it is over. In between, estimate from the time spent and
+        # the measured reading speed (never past 97%, never below the real count).
+        since = _inflight.get("since") or time.time()
+        guess = int((time.time() - since) * RATES["read"])
+        done = max(done, min(guess, int(to_read * 0.97)))
     # Measure the real speed live from how far the counters moved since the last look,
     # so the time left follows this computer right now (on battery it is far slower).
     now, last = time.time(), _seen.get(job_id)
     if last and now - last[0] >= 2:
         dt = now - last[0]
-        if done > last[1] and reading:
-            RATES["read"] = round(0.5 * RATES["read"] + 0.5 * (done - last[1]) / dt, 2)
+        if real_done > last[1] and written == 0:
+            RATES["read"] = round(0.5 * RATES["read"] + 0.5 * (real_done - last[1]) / dt, 2)
         if written > last[2]:
             RATES["write"] = round(0.5 * RATES["write"] + 0.5 * (written - last[2]) / dt, 2)
     if not last or now - last[0] >= 2:
         _seen.clear()
-        _seen[job_id] = (now, done, written)
+        _seen[job_id] = (now, real_done, written)
     left_read = max(0, to_read - done) if reading else 0
     left_write = max(0, expected_out - written)
     rr, rw = max(RATES["read"], 0.5), max(RATES["write"], 0.3)
@@ -130,8 +138,19 @@ def join_job(started: int) -> None:
 
 
 def _check(started: int) -> None:
-    if _stop_count != started:
+    if _stop_count != started or getattr(_local, "job_id", None) in _cancelled:
         raise Stopped(STOPPED_MESSAGE)
+
+
+def cancel_job(job_id: str) -> bool:
+    """End one job (e.g. reactions replaced by a newer request): its waiting calls stop,
+    and if Karnak is working on it the request is dropped so Karnak is free at once."""
+    _cancelled.add(job_id)
+    with _live_lock:
+        clients = [c for c, j in _live.items() if j == job_id]
+    for c in clients:
+        _hang_up(c)
+    return bool(clients)
 
 
 def stop_all() -> int:
@@ -139,7 +158,7 @@ def stop_all() -> int:
     global _stop_count
     _stop_count += 1
     with _live_lock:
-        clients = list(_live)
+        clients = list(_live.keys())
     for c in clients:
         _hang_up(c)
     return len(clients)
@@ -165,7 +184,7 @@ def _hang_up(client: httpx.Client) -> None:
 def _post(payload: dict, headers: dict, timeout: float, started: int) -> httpx.Response:
     client = httpx.Client(timeout=timeout)
     with _live_lock:
-        _live.add(client)
+        _live[client] = getattr(_local, "job_id", None)
     job_id = getattr(_local, "job_id", None)
     try:
         _check(started)
@@ -183,7 +202,7 @@ def _post(payload: dict, headers: dict, timeout: float, started: int) -> httpx.R
         if _inflight.get("job") == job_id:
             _inflight.clear()
         with _live_lock:
-            _live.discard(client)
+            _live.pop(client, None)
         client.close()
 _MIN_SPEECH_TOKENS = 500
 _EXCERPTS = 8

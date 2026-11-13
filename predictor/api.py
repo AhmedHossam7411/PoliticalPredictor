@@ -439,6 +439,12 @@ _JOBS: dict[str, dict] = {}
 
 
 def _start_job(kind: str, fn, *args) -> str:
+    # A new request of the same kind (a re-run, or the same text in another language)
+    # replaces the old one: Karnak would otherwise do both, one after the other.
+    for old in _JOBS.values():
+        if old["kind"] == kind and old["status"] == "running":
+            old.update(status="stopped", error="Replaced by a newer request.", code=499)
+            llm.cancel_job(old["id"])
     job = {"id": _uuid.uuid4().hex[:12], "kind": kind, "status": "running",
            "started": _time.time(), "result": None, "error": "", "code": 0}
     for old in sorted(_JOBS, key=lambda k: _JOBS[k]["started"])[:-20]:
