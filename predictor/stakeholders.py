@@ -21,7 +21,7 @@ from pathlib import Path
 import httpx
 
 from .llm import (_LANG_NAMES, FALLBACK_MODELS, LLMNotConfigured, available, estimate_tokens,
-                  fit_speech, input_note, chat_json, split_parts,
+                  fit_speech, input_note, chat_json, split_parts, speech_messages,
                   not_configured_reason, not_running_reason)
 from . import store as _storage
 
@@ -828,17 +828,17 @@ def _join(items: list[str]) -> str:
     return ", ".join(items[:-1]) + " and " + items[-1]
 
 
-def heuristic_react(text: str, language: str = "en") -> dict:
+def heuristic_react(text: str, language: str = "en", reactors: list[str] | None = None) -> dict:
     text_lc = " " + text.lower() + " "
     return {
-        "reactions": [{**_heuristic_one(text_lc, s, language), "ai": False} for s in STAKEHOLDERS],
+        "reactions": [{**_heuristic_one(text_lc, s, language), "ai": False} for s in chosen_reactors(reactors)],
         "method": "heuristic",
     }
 
 
-# --- Who the AI reacts for -------------------------------------------------
-# Karnak reads every chosen profile in one request: about 12 fit, and fewer people
-# give better answers. Everyone else on the panel gets the keyword guess.
+# --- Who reacts --------------------------------------------------------------
+# Only the chosen stakeholders get a reaction (at most 12): Karnak reads every chosen
+# profile in one request, and fewer people give faster, better answers.
 MAX_AI_REACTORS = 12
 # Used when nobody was chosen: the Middle East panel the app started with.
 DEFAULT_REACTORS = ["sisi", "mbs", "mbz", "tamim", "abdullah-ii", "erdogan", "netanyahu",
@@ -891,8 +891,8 @@ positions; never invent quotes, private views or events.
 For each stakeholder decide:
 - stance: exactly one of "Support", "Oppose", "Mixed", or "Neutral".
 - confidence: integer 0-100 (how clearly the text implicates their interests).
-- reasoning: one or two sentences grounded in their specific interests.
-- response: their single most likely action, drawn from how such an actor behaves.
+- reasoning: ONE short sentence (at most 25 words) grounded in their specific interests.
+- response: their single most likely action, in at most 12 words.
 
 Respond ONLY with JSON of this exact shape:
 {"reactions": [{"id": "<stakeholder id>", "stance": "...", "confidence": <int>, \
@@ -963,7 +963,9 @@ def llm_react(text: str, language: str = "en", timeout: float | None = None,
     profiles = f"Stakeholders:\n{_profiles_for_prompt(panel)}\n\n"
     sent, excerpt_note, excerpted = fit_speech(text, system + profiles)
     parts_read = None
-    if excerpted:
+    # Reading a long document part by part costs one extra AI request per part; on a
+    # local model that is far too slow, so long texts use excerpts, like the traits.
+    if excerpted and os.environ.get("LLM_READ_IN_PARTS") == "1":
         # Too long for one call: read every part, then judge from the notes.
         try:
             notes = read_in_parts(text)
@@ -980,13 +982,15 @@ def llm_react(text: str, language: str = "en", timeout: float | None = None,
             parts_read = {"parts": len(notes), "total_words": total}
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             print(f"[stakeholders] reading in parts failed, using excerpts: {exc}")
-    user = f"{profiles}Speech / policy text:\n\n{sent}"
-    # Low reasoning effort: this prompt is ~5.5k tokens, and gpt-oss's hidden
-    # reasoning otherwise pushes the call near the free tier's 8k/minute cap.
-    data, model = chat_json([
-        {"role": "system", "content": system + excerpt_note},
-        {"role": "user", "content": user},
-    ], temperature=0.3, timeout=timeout, reasoning_effort="low", max_wait=60.0)
+    if parts_read:  # notes on every part, then the task
+        messages = [{"role": "system", "content": system + excerpt_note},
+                    {"role": "user", "content": f"{profiles}Speech / policy text:\n\n{sent}"}]
+    else:
+        # Speech first, exactly as the AI traits sent it, so Karnak reuses its reading.
+        messages, excerpted = speech_messages(text, f"{system}\n\n{profiles}"
+                                              "React as each stakeholder listed above.")
+    data, model = chat_json(messages, temperature=0.3, timeout=timeout,
+                            reasoning_effort="low", max_wait=60.0)
 
     # Merge model output with the canonical name/role so the UI always has them.
     by_id = {s["id"]: s for s in panel}
@@ -1003,10 +1007,10 @@ def llm_react(text: str, language: str = "en", timeout: float | None = None,
             "response": r.get("response", s["responses"][0]),
             "ai": True,
         })
-    # Everyone else on the panel, and anyone the model skipped: the keyword guess.
+    # Anyone chosen whom the model skipped: the keyword guess.
     seen = {r["id"] for r in reactions}
     text_lc = " " + text.lower() + " "
-    for s in STAKEHOLDERS:
+    for s in panel:
         if s["id"] not in seen:
             reactions.append({**_heuristic_one(text_lc, s, language), "ai": False})
     # Preserve panel order.
@@ -1035,6 +1039,6 @@ def react(text: str, language: str = "en", reactors: list[str] | None = None) ->
                       and exc.response.status_code == 429
                       else f"{type(exc).__name__}: {exc}")[:300]
             print(f"[stakeholders] AI reactions failed, using keyword fallback: {reason}")
-    result = heuristic_react(text, language)
+    result = heuristic_react(text, language, reactors)
     result["fallback_reason"] = reason
     return result

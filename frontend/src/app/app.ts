@@ -125,6 +125,8 @@ interface LlmResult {
 interface Meta { lta_traits: string[]; vics_indices: string[];
   norming_corpus_default: string[]; llm_available: boolean;
   max_ai_reactors?: number; default_reactors?: string[]; }
+interface StakeProgress { phase: 'waiting' | 'reading' | 'writing'; read?: number; read_total?: number;
+  written?: number; expected_out?: number; eta_seconds?: number; percent?: number; people?: number; }
 interface Reaction { id: string; name: string; role: string; stance: string;
   confidence: number; reasoning: string; response: string; views?: View[];
   /** false: a keyword guess (not chosen for the AI, or skipped by it). */
@@ -538,7 +540,7 @@ export class App {
   });
 
   private loadReview(text: string) {
-    this.stopAi(true);
+    this.stopAi(true, false);  // end an older check, but keep the traits and reactions waiting
     this.review.set(null);
     this.decisions.set(noDecisions());
     this.fromAi.set(new Set()); this.touched.set(new Set());
@@ -557,7 +559,7 @@ export class App {
   }
 
   startAi(text: string = this.dictText()) {
-    this.stopAi(true);
+    this.stopAi(true, false);
     this.aiJob.set({ id: '', status: 'running', done: 0, total: 0,
       decisions: { ignore: [], add: [], tones: [] }, reviewed: [], error: '' });
     this.http.post<{ job: string }>(`${API}/context/ai`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
@@ -584,7 +586,9 @@ export class App {
     }, wait);
   }
 
-  stopAi(cancelOnServer = false) {
+  /** Stop the context check. `release`: let the waiting AI traits and reactions start now
+   *  (true when a person stops it; false when a new check is about to replace it). */
+  stopAi(cancelOnServer = false, release = true) {
     if (this.aiTimer) { clearTimeout(this.aiTimer); this.aiTimer = null; }
     const j = this.aiJob();
     if (j?.status === 'running') {
@@ -592,7 +596,7 @@ export class App {
       this.aiJob.set({ ...j, status: 'cancelled' });
     }
     // Stopping the check by hand lets the AI traits and reactions start now.
-    if (cancelOnServer && this.dictText() === this.aiQueued()) this.releaseAi();
+    if (release && cancelOnServer && this.dictText() === this.aiQueued()) this.releaseAi();
   }
 
   /** Take in Karnak's new decisions, except on sentences a person already changed. */
@@ -1494,14 +1498,34 @@ export class App {
   // Server jobs for the AI traits and reactions; their ids survive a page refresh.
   llmJob = signal('');
   stakeJob = signal('');
+  /** Live progress of the stakeholder reactions, for the loading meter. */
+  stakeProgress = signal<StakeProgress | null>(null);
+  /** The meter's caption: which step Karnak is on, and roughly how long is left. */
+  stakeMeterText = computed(() => {
+    const p = this.stakeProgress(), m = this.t().meter;
+    if (this.aiQueued() || p?.phase === 'waiting') return m['waiting'];
+    if (!p) return m['working'];  // no live figures (yet): don't guess the step
+    const left = p.eta_seconds ?? 0;
+    const time = left < 60 ? m['lessMin'] : m['mins'].replace('{n}', String(Math.round(left / 60)));
+    if (p.phase === 'reading') {
+      return m['reading'].replace('{a}', String(p.read ?? 0)).replace('{b}', String(p.read_total ?? 0)) + ' · ' + time;
+    }
+    const people = p.people ?? 0;
+    const done = Math.min(people, Math.floor((p.written ?? 0) / Math.max(1, ((p.expected_out ?? 80) - 20) / Math.max(1, people))));
+    return m['writing'].replace('{a}', String(done)).replace('{b}', String(people)) + ' · ' + time;
+  });
 
   private pollJob<T>(id: string, which: 'llm' | 'stake', text: string, wait = 3000) {
     setTimeout(() => {
       const current = which === 'llm' ? this.llmJob() : this.stakeJob();
       if (current !== id || this.submittedText() !== text) return;  // replaced by a newer run
-      this.http.get<{ status: string; result: T | null; error: string; code: number }>(`${API}/jobs/${id}`).subscribe({
+      this.http.get<{ status: string; result: T | null; error: string; code: number; progress?: StakeProgress }>(`${API}/jobs/${id}`).subscribe({
         next: (j) => {
-          if (j.status === 'running') { this.pollJob<T>(id, which, text); return; }
+          if (j.status === 'running') {
+            if (which === 'stake') this.stakeProgress.set(j.progress ?? null);
+            this.pollJob<T>(id, which, text); return;
+          }
+          if (which === 'stake') this.stakeProgress.set(null);
           const failed = j.status !== 'done' && j.status !== 'stopped';
           if (which === 'llm') {
             if (!failed) this.llm.set(j.result as LlmResult);

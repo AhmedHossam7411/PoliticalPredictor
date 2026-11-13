@@ -53,10 +53,75 @@ _live: set = set()        # connections to Karnak that are open right now
 _live_lock = threading.Lock()
 
 
-def begin_job() -> int:
-    """Mark the start of an AI job in this thread; a later Stop AI ends it."""
+def begin_job(job_id: str | None = None) -> int:
+    """Mark the start of an AI job in this thread; a later Stop AI ends it. `job_id`
+    lets progress() tell which job Karnak is working on."""
     _local.started = _stop_count
+    _local.job_id = job_id
     return _stop_count
+
+
+# --------------------------------------------------------------------------- #
+# Progress: what Karnak is doing for a job right now, for the loading meter
+# --------------------------------------------------------------------------- #
+# Karnak's speeds on this computer (tokens per second), learnt from its own timings
+# after every request; the starting values are an ordinary laptop's.
+RATES = {"read": 11.0, "write": 2.5}
+_inflight: dict = {}  # the request Karnak is working on: {"job": id, "since": time}
+_seen: dict = {}      # job id -> (time, tokens read, tokens written) at the last look
+_peak: dict = {}      # job id -> highest percentage shown, so the bar never goes back
+
+
+def _learn_rates(body: dict) -> None:
+    t = body.get("timings") or {}
+    for key, n, rate in (("read", t.get("prompt_n", 0), t.get("prompt_per_second")),
+                         ("write", t.get("predicted_n", 0), t.get("predicted_per_second"))):
+        if rate and n >= 100:  # short bursts don't show the real speed
+            RATES[key] = round(0.6 * RATES[key] + 0.4 * float(rate), 2)
+
+
+def progress(job_id: str, expected_out: int) -> dict:
+    """{phase, read, read_total, written, expected_out, eta_seconds} for a running job.
+    phase: "waiting" (Karnak is busy with another step), "reading" or "writing"."""
+    if _inflight.get("job") != job_id:
+        return {"phase": "waiting"}
+    try:
+        slot = httpx.get(BASE_URL.removesuffix("/v1") + "/slots", timeout=2).json()[0]
+    except (httpx.HTTPError, ValueError, KeyError, IndexError, TypeError):
+        return {"phase": "reading"}
+    total = int(slot.get("n_prompt_tokens") or 0)
+    cached = int(slot.get("n_prompt_tokens_cache") or 0)
+    done = int(slot.get("n_prompt_tokens_processed") or 0)
+    written = int(((slot.get("next_token") or [{}])[0]).get("n_decoded") or 0)
+    to_read = max(0, total - cached)
+    reading = written == 0 and done < to_read
+    # Measure the real speed live from how far the counters moved since the last look,
+    # so the time left follows this computer right now (on battery it is far slower).
+    now, last = time.time(), _seen.get(job_id)
+    if last and now - last[0] >= 2:
+        dt = now - last[0]
+        if done > last[1] and reading:
+            RATES["read"] = round(0.5 * RATES["read"] + 0.5 * (done - last[1]) / dt, 2)
+        if written > last[2]:
+            RATES["write"] = round(0.5 * RATES["write"] + 0.5 * (written - last[2]) / dt, 2)
+    if not last or now - last[0] >= 2:
+        _seen.clear()
+        _seen[job_id] = (now, done, written)
+    left_read = max(0, to_read - done) if reading else 0
+    left_write = max(0, expected_out - written)
+    rr, rw = max(RATES["read"], 0.5), max(RATES["write"], 0.3)
+    eta = left_read / rr + left_write / rw
+    # The share of the work done, with fixed weights for reading and writing (an
+    # ordinary laptop's proportions), so the bar only moves forward.
+    w_read, w_write = to_read / 11.0, max(expected_out, written) / 2.5
+    done_work = (to_read - left_read) / 11.0 + min(written, expected_out) / 2.5
+    percent = 100 * done_work / (w_read + w_write) if (w_read + w_write) else 0
+    percent = max(percent, _peak.get(job_id, 0))
+    _peak.clear()
+    _peak[job_id] = percent
+    return {"phase": "reading" if reading else "writing", "read": min(done, to_read) if reading else to_read,
+            "read_total": to_read, "written": written, "expected_out": expected_out,
+            "eta_seconds": int(eta), "percent": round(min(99, max(1, percent)))}
 
 
 def join_job(started: int) -> None:
@@ -101,13 +166,22 @@ def _post(payload: dict, headers: dict, timeout: float, started: int) -> httpx.R
     client = httpx.Client(timeout=timeout)
     with _live_lock:
         _live.add(client)
+    job_id = getattr(_local, "job_id", None)
     try:
         _check(started)
-        return client.post(CHAT_URL, json=payload, headers=headers)
+        _inflight.update(job=job_id, since=time.time())
+        resp = client.post(CHAT_URL, json=payload, headers=headers)
+        try:
+            _learn_rates(resp.json())
+        except ValueError:
+            pass
+        return resp
     except Exception:
         _check(started)  # hung up by Stop AI: say so, not "connection closed"
         raise
     finally:
+        if _inflight.get("job") == job_id:
+            _inflight.clear()
         with _live_lock:
             _live.discard(client)
         client.close()
@@ -201,14 +275,15 @@ def estimate_tokens(text: str) -> int:
     return int(len(text) / (2.5 if arabic.is_arabic(text) else 4))
 
 
-def fit_speech(text: str, prompt: str = "") -> tuple[str, str, dict | None]:
+def fit_speech(text: str, prompt: str = "", reserve: int | None = None) -> tuple[str, str, dict | None]:
     """Fit a speech into what's left of MAX_INPUT_TOKENS after the prompt.
 
     Returns (text to send, prompt note, {read_words, total_words} or None if the
     whole speech fits). A long document becomes evenly spaced excerpts cut at line
     or sentence ends, so the model sees all of it rather than just the start.
     """
-    budget = max(_MIN_SPEECH_TOKENS, MAX_INPUT_TOKENS - estimate_tokens(prompt))
+    room = reserve if reserve is not None else estimate_tokens(prompt)
+    budget = max(_MIN_SPEECH_TOKENS, MAX_INPUT_TOKENS - room)
     tokens = estimate_tokens(text)
     if tokens <= budget:
         return text, "", None
@@ -227,6 +302,28 @@ def fit_speech(text: str, prompt: str = "") -> tuple[str, str, dict | None]:
             f"evenly spaced excerpts ({read} words), separated by [...]. Judge the whole "
             "document from them.")
     return sent, note, {"read_words": read, "total_words": total}
+
+
+# --------------------------------------------------------------------------- #
+# Speech first: read once, reused by every request
+# --------------------------------------------------------------------------- #
+# Karnak keeps the start of its last prompt in memory and skips re-reading it when the
+# next prompt starts the same way. So the AI traits and the stakeholder reactions both
+# open with the same system line and the same speech text, and put their own task
+# after it: the reactions then reuse the speech Karnak just read for the traits,
+# instead of reading it again (several minutes on an ordinary computer).
+ANALYST_SYSTEM = ("You are Cortex, a political analyst. Read the speech or document first, then do "
+                  "the task written after it. Respond ONLY with JSON.")
+# Room kept for the task (instructions, stakeholder profiles) when fitting the speech:
+# the same for every request, so long speeches are cut into the same excerpts.
+SPEECH_RESERVE = 3000
+
+
+def speech_messages(text: str, task: str) -> tuple[list[dict], dict | None]:
+    """Chat messages with the speech first and the task after it; and the excerpt info."""
+    sent, note, excerpted = fit_speech(text, reserve=SPEECH_RESERVE)
+    user = f"SPEECH OR DOCUMENT:\n\n{sent}\n\n==========\nTASK\n\n{task}{note}"
+    return [{"role": "system", "content": ANALYST_SYSTEM}, {"role": "user", "content": user}], excerpted
 
 
 # Size of one part when a long document is read part by part (see split_parts).
@@ -336,12 +433,10 @@ def score_llm(text: str, model: str | None = None, timeout: float | None = None,
     scores, keys and bands stay English.
     """
     detected, note = input_note(text)
-    system = _SYSTEM_PROMPT + note + _length_note(text) + _language_instruction(language)
-    sent, excerpt_note, excerpted = fit_speech(text, system)
-    data, model = chat_json([
-        {"role": "system", "content": system + excerpt_note},
-        {"role": "user", "content": f"Score this speech:\n\n{sent}"},
-    ], temperature=0.2, model=model, timeout=timeout)
+    task = (_SYSTEM_PROMPT + note + _length_note(text) + _language_instruction(language)
+            + "\n\nScore the speech above.")
+    messages, excerpted = speech_messages(text, task)
+    data, model = chat_json(messages, temperature=0.2, model=model, timeout=timeout)
     # Small models sometimes misspell a key; accept the near-misses.
     for k in list(data):
         if k != "leadership_style" and k.replace("_", "").lower() == "leadershipstyle":

@@ -11,7 +11,10 @@
   --radius: 5px; --radius-sm: 3px;
 
   display: block; min-height: 100vh; color: var(--on-bg);
-  background: linear-gradient(160deg, var(--bg1), var(--bg2)) fixed;
+  /* Lighter in the middle of the screen, deepening to navy at the edges. */
+  background:
+    radial-gradient(ellipse 75% 65% at 50% 38%, rgba(88, 140, 215, 0.42) 0%, rgba(40, 90, 165, 0.22) 45%, rgba(10, 37, 71, 0) 100%) fixed,
+    linear-gradient(160deg, #1a4b8c, var(--bg2)) fixed;
   background-color: var(--bg2);
   /* General text: the computer's own clean face (Segoe UI on Windows, San Francisco on
      the Mac), English and Arabic alike. Titles and the logo keep the classic faces. */
@@ -48,12 +51,15 @@
 
 header h1 { margin: 0; font-size: 2rem; letter-spacing: -0.02em; color: var(--on-bg); }
 header .sub { margin: 0.4rem 0 1.25rem; color: var(--on-bg-muted); max-width: 70ch; }
+/* Language and sign out: square-cornered outline buttons on the navy, no white boxes. */
 .lang-btn {
-  background: var(--surface2); color: var(--ink); border: 1px solid var(--line);
-  border-radius: var(--radius-sm); padding: 0.4rem 0.9rem; font: inherit; font-weight: 600;
-  cursor: pointer; white-space: nowrap;
+  background: transparent; color: var(--on-bg); border: 1px solid rgba(201, 169, 97, 0.55);
+  border-radius: 2px; padding: 0.32rem 1rem; font: inherit; font-size: 0.86rem; font-weight: 500;
+  letter-spacing: 0.06em; cursor: pointer; white-space: nowrap;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-.lang-btn:hover { background: #dde5f1; }
+.lang-btn:hover { background: rgba(255, 255, 255, 0.08); border-color: #c9a961; color: #fff; }
+.lang-btn:focus-visible { outline: 2px solid #c9a961; outline-offset: 2px; }
 .header-actions { display: flex; gap: 0.5rem; align-items: center; }
 
 /* Top navigation */
@@ -77,10 +83,13 @@ header .sub { margin: 0.4rem 0 1.25rem; color: var(--on-bg-muted); max-width: 70
 /* Login gate — full-viewport, centered, over a ministry background */
 .login-wrap {
   position: fixed; inset: 0; z-index: 25;
-  display: flex; justify-content: center; align-items: center;
+  display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 1rem;
   padding: 1.5rem; box-sizing: border-box; overflow-y: auto;
+  /* A soft spotlight: lighter blue in the middle (behind the logo and the box),
+     deepening to dark navy at the edges. */
   background:
-    linear-gradient(rgba(9, 30, 60, 0.78), rgba(9, 30, 60, 0.90)),
+    radial-gradient(ellipse 60% 70% at 50% 42%, rgba(70, 120, 200, 0.55) 0%, rgba(25, 65, 130, 0.35) 45%, rgba(6, 20, 45, 0) 100%),
+    linear-gradient(rgba(9, 30, 60, 0.72), rgba(5, 18, 40, 0.94)),
     url('/MOYS.jpg') center / cover no-repeat fixed;
 }
 .login-card {
@@ -90,6 +99,10 @@ header .sub { margin: 0.4rem 0 1.25rem; color: var(--on-bg-muted); max-width: 70
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
 }
 .login-card .header-row h1 { color: var(--ink); }
+/* The Cortex logo above the sign-in card, on the dark background (its letters are white). */
+.login-logo { display: block; width: 170px; height: 170px; object-fit: contain; flex-shrink: 0;
+  filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.45)); }
+@media (max-height: 700px) { .login-logo { width: 110px; height: 110px; } }
 .login-title { margin: 1rem 0 0.25rem; font-size: 1.3rem; }
 .field { display: block; margin: 0.9rem 0; }
 .field span { display: block; font-size: 0.85rem; color: var(--muted); margin-bottom: 0.3rem; }
@@ -163,6 +176,19 @@ button.ghost { background: transparent; color: var(--ink); border: 1px solid var
 button.ghost:hover { background: var(--surface2); }
 button:disabled { opacity: 0.45; cursor: not-allowed; }
 .run-note { color: var(--muted); font-size: 0.82rem; }
+
+/* Loading meter for the stakeholder reactions */
+.meter { height: 10px; border-radius: 5px; background: var(--surface2); border: 1px solid var(--line);
+  overflow: hidden; margin: 0.6rem 0 0.35rem; }
+.meter-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #c9a961);
+  transition: width 1.2s ease; }
+.meter-fill.waiting { background: repeating-linear-gradient(45deg, #c9d5e8 0 10px, #e3eaf5 10px 20px);
+  background-size: 28px 28px; animation: meter-wait 1s linear infinite; }
+@keyframes meter-wait { from { background-position: 0 0; } to { background-position: 28px 0; } }
+/* No live figures yet: a short block slides back and forth (amount of work unknown). */
+.meter-fill.unknown { animation: meter-slide 1.6s ease-in-out infinite alternate; transition: none; }
+@keyframes meter-slide { from { margin-inline-start: 0; } to { margin-inline-start: 75%; } }
+.meter-text { margin: 0; font-size: 0.88rem; color: var(--ink); }
 
 /* Guide page: the handbook download and the how-to sections */
 .guide-pdf { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; padding: 0.8rem 1rem;

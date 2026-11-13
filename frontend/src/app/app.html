@@ -16,7 +16,7 @@
     </div>
     <!-- Language and sign out, top right -->
     <div class="header-actions top-actions" [attr.dir]="t().dir">
-      <button class="lang-btn" (click)="toggleLang()">🌐 {{ t().switchTo }}</button>
+      <button class="lang-btn" (click)="toggleLang()">{{ t().switchTo }}</button>
       @if (authed()) { <button class="lang-btn" (click)="logout()">{{ t().logout }}</button> }
     </div>
   </div>
@@ -24,6 +24,7 @@
   <!-- Login gate -->
   @if (!authed()) {
     <div class="login-wrap">
+      <img class="login-logo" src="cortex-logo.png" alt="Cortex">
       <div class="login-card">
         <h2 class="login-title">{{ t().loginTitle }}</h2>
         <p class="sub">{{ t().loginSub }}</p>
@@ -607,6 +608,25 @@
     <section class="card">
       <h2>{{ t().stakeHeading }}</h2>
       <p class="muted">{{ aiQueued() ? t().cx['waitCtx'] : t().stakeWait }}</p>
+      <!-- Loading meter: Karnak's live progress on the reactions -->
+      <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+        [attr.aria-valuenow]="stakeProgress()?.percent ?? 0" [attr.aria-label]="t().stakeHeading">
+        <div class="meter-fill" [class.waiting]="aiQueued() || stakeProgress()?.phase === 'waiting'"
+          [class.unknown]="!aiQueued() && !stakeProgress()"
+          [style.width.%]="aiQueued() || stakeProgress()?.phase === 'waiting' ? 100 : !stakeProgress() ? 25 : (stakeProgress()?.percent ?? 2)"></div>
+      </div>
+      <p class="meter-text">
+        @if (stakeProgress()?.percent && !aiQueued() && stakeProgress()?.phase !== 'waiting') { <strong>{{ stakeProgress()!.percent }}%</strong> · }
+        {{ stakeMeterText() }}
+      </p>
+    </section>
+  }
+  <!-- No reactions and none on the way (e.g. the server restarted mid-run): offer to get them -->
+  @if (analyzed() && !stake() && !stakeLoading() && !aiQueued()) {
+    <section class="card">
+      <h2>{{ t().stakeHeading }}</h2>
+      <p class="muted">{{ t().stakeMissing }}</p>
+      <button (click)="runStakeholders(submittedText())" [disabled]="!submittedText()">{{ t().stakeGet }}</button>
     </section>
   }
   @if (stake(); as st) {

@@ -446,7 +446,7 @@ def _start_job(kind: str, fn, *args) -> str:
     _JOBS[job["id"]] = job
 
     def run():
-        llm.begin_job()
+        llm.begin_job(job["id"])
         try:
             result = fn(*args)
             if job["status"] == "running":
@@ -484,7 +484,9 @@ def job_llm(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict
 
 @app.post("/jobs/stakeholders")
 def job_stakeholders(req: AnalyzeRequest, user: str = Depends(auth.require_auth)) -> dict:
-    return {"job": _start_job("stakeholders", analyze_stakeholders, req, user)}
+    jid = _start_job("stakeholders", analyze_stakeholders, req, user)
+    _JOBS[jid]["reactors_n"] = len(stk.chosen_reactors(req.reactors))
+    return {"job": jid}
 
 
 @app.get("/jobs/{job_id}")
@@ -492,6 +494,10 @@ def job_status(job_id: str, user: str = Depends(auth.require_auth)) -> dict:
     job = _JOBS.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="No such job (the server may have restarted).")
+    if job["status"] == "running" and job["kind"] == "stakeholders":
+        # For the loading meter: about 80 words of JSON per stakeholder.
+        n = job.get("reactors_n") or stk.MAX_AI_REACTORS
+        return {**job, "progress": {**llm.progress(job_id, 80 * n + 20), "people": n}}
     return job
 
 

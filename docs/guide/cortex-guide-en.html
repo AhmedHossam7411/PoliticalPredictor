@@ -91,7 +91,7 @@ Cortex adds three things on top of the classic method:</p>
   <tr><td><span class="btn">Upload a file</span></td><td>Reads a PDF, Word (.docx) or text (.txt) file, up to 50 MB. The text appears in the box so you can check it first. Scanned PDFs (images) cannot be read; paste their text instead.</td></tr>
   <tr><td><span class="btn">Clear</span></td><td>Empties the box and the results, and stops any AI work for that text.</td></tr>
   <tr><td>The speaker is: (search box)</td><td>Type part of a name; matching stakeholders appear as suggestions. When a name is chosen the box turns bold. The speaker's own country (for a group, the group itself) is left out of the "places named" list.</td></tr>
-  <tr><td>AI reactions from: N of 12 chosen</td><td>Click to open a list of every stakeholder, by group. Tick up to 12 for the AI to react as. Everyone else gets a quick keyword guess. <span class="btn">Back to the default</span> returns to the original Middle East panel. Your choice is remembered on that computer.</td></tr>
+  <tr><td>AI reactions from: N of 12 chosen</td><td>Click to open a list of every stakeholder, by group. Tick up to 12 for the AI to react as. Only they get reactions, which keeps the analysis fast. <span class="btn">Back to the default</span> returns to the original Middle East panel. Your choice is remembered on that computer.</td></tr>
 </table>
 <p>If a document contains several speeches (for example a press conference), Cortex finds each speaker. A table lets you pick
 one speaker's part and compare the speakers' word scores side by side.</p>
@@ -162,10 +162,10 @@ statements to the speaker's stakeholder file, building a record of what each lea
 response (for example "issue a statement through the Foreign Ministry").</p>
 <ul>
   <li>The AI reacts as the stakeholders you chose (up to 12), reading the speech against each one's values, supports, opposes and concerns, and, where available, a profile distilled from their own past speeches.</li>
-  <li>Everyone else gets a <em>keyword guess</em>: a quick match between the speech and their declared positions. These are shown after the AI's reactions with a "keyword guess" tag. The keyword guess is weak for Arabic speeches.</li>
+  <li>Only the chosen stakeholders get a reaction. If the AI skips one of them, or the AI is off, they get a <em>keyword guess</em> instead: a quick match between the speech and their declared positions, marked with a "keyword guess" tag. The keyword guess is weak for Arabic speeches.</li>
   <li>The coalition line counts how many support or oppose; the filter buttons show one stance at a time.</li>
   <li>"Their view of names in this text" shows what each stakeholder thinks of the countries named, from their profile or their recorded speeches. Click a chip to see what they actually said.</li>
-  <li><span class="btn">Try AI again</span> appears when the AI failed and the keyword guess was used for everyone.</li>
+  <li><span class="btn">Try AI again</span> appears when the AI failed and the keyword guess was used instead.</li>
 </ul>
 
 <h2>9. The Stakeholders page and profiles</h2>

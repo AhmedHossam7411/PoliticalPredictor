@@ -33,3 +33,7 @@
   size-adjust: 112%;
   unicode-range: U+0600-06FF, U+0750-077F, U+08A0-08FF, U+FB50-FDFF, U+FE70-FEFF;
 }
+
+/* No white frame: the app's navy background runs to the edges of the window,
+   including past the end of the page when scrolling. */
+html, body { margin: 0; padding: 0; background: #0a2547; min-height: 100%; }
