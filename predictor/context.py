@@ -42,6 +42,13 @@ CODE_OF = {"BACE:high": "BACE", "PWR:high": "PWR", "SC:high": "SC+", "SC:low": "
            "CC:high": "CC+", "CC:low": "CC-", "TASK:high": "TASK", "TASK:low": "REL",
            "DIS:high": "DIS", "IGB:high": "IGB"}
 LABEL_OF = {v: k for k, v in CODE_OF.items()}
+# In-group bias is reviewed once, in the in-group section (predictor.ingroup): the context
+# check neither asks about IGB-only words nor adds IGB to sentences.
+IGB_HANDLED_ELSEWHERE = {"IGB:high"}
+
+
+def _igb_only(h: dict) -> bool:
+    return all(l.startswith("IGB:") for l in h["labels"])
 TONES = ("positive", "negative", "neutral")
 _SKIPPED = ("other", "denied")
 
@@ -132,7 +139,7 @@ def _clean(decisions: dict | None) -> dict:
     d = decisions or {}
     adds = []
     for a in d.get("add", []):
-        if a.get("label") not in CODE_OF:
+        if a.get("label") not in CODE_OF or a.get("label") in IGB_HANDLED_ELSEWHERE:
             continue
         add = {"sentence": int(a["sentence"]), "label": a["label"]}
         if a.get("start") is not None and a.get("end") is not None:
@@ -142,7 +149,9 @@ def _clean(decisions: dict | None) -> dict:
             "count": sorted({int(i) for i in d.get("count", [])}),
             "confirm": sorted({int(i) for i in d.get("confirm", [])}),
             "move": [{"id": int(m["id"]), "label": m["label"]} for m in d.get("move", [])
-                     if m.get("label") in CODE_OF and m.get("id") is not None],
+                     if m.get("label") in CODE_OF and m.get("label") not in IGB_HANDLED_ELSEWHERE
+                     and m.get("id") is not None],
+            "groups": [g for g in d.get("groups", []) if isinstance(g, dict) and "sentence" in g],
             "add": adds,
             "tones": [{"sentence": int(t["sentence"]), "entity": t["entity"], "tone": t["tone"],
                        "source": t.get("source", "person")} for t in d.get("tones", [])
@@ -182,6 +191,17 @@ def deltas(text: str, decisions: dict | None) -> dict[str, int]:
         out[m["label"]] = out.get(m["label"], 0) + 1
     for a in d["add"]:
         out[a["label"]] = out.get(a["label"], 0) + 1
+    # A sentence the in-group review marks as quoted or reported isn't the speaker's own
+    # in-group language: its IGB words leave the word score too (once, whoever decided).
+    by_sentence = {s["i"]: s["hits"] for s in review(text)["sentences"]}
+    for g in d["groups"]:
+        if g.get("voice") not in ("quoted", "reported"):
+            continue
+        for h in by_sentence.get(int(g["sentence"]), []):
+            if h["id"] in d["ignore"] or not h["counted"]:
+                continue
+            if "IGB:high" in h["labels"]:
+                out["IGB:high"] = out.get("IGB:high", 0) - 1
     return out
 
 
@@ -228,8 +248,8 @@ world" shows strong self-confidence: add "SC+". Codes:
    BACE = the speaker believes they control events; PWR = seeks power or dominance \
 over others; SC+ = self-confidence, boasting; SC- = self-doubt; CC+ = nuance, sees \
 several sides; CC- = black-and-white certainty; TASK = focus on problems and goals; \
-REL = focus on people and relationships; DIS = distrust or suspicion of others; \
-IGB = us-versus-them, national pride.
+REL = focus on people and relationships; DIS = distrust or suspicion of others. \
+(In-group bias is checked separately: never add IGB.)
    Only add a code the sentence really shows; most sentences need none.
 3. "move": a marked word that does carry a trait here, but a different one than \
 marked, because of the rest of the sentence. Example: "great" marked CC- in "we made \
@@ -246,8 +266,8 @@ _TONE_CODE = {"pos": "positive", "neg": "negative", "neu": "neutral",
 
 def _line(it: dict) -> str:
     text = " ".join(it["text"].split())[:_MAX_CHARS]
-    marked = ", ".join(f"{h['word']}={'/'.join(CODE_OF[l] for l in h['labels'] if l in CODE_OF)}"
-                       for h in it["hits"] if h["counted"])
+    marked = ", ".join(f"{h['word']}={'/'.join(CODE_OF[l] for l in h['labels'] if l in CODE_OF and l not in IGB_HANDLED_ELSEWHERE)}"
+                       for h in it["hits"] if h["counted"] and not _igb_only(h))
     out = f"{it['i']}: {text}"
     if marked:
         out += f"\n   marked: {marked}"
@@ -280,9 +300,11 @@ def _apply_answer(group: list[dict], answer: dict) -> dict:
         kept_labels = set()
         for h in it["hits"]:
             w = _norm_word(h["word"])
+            if _igb_only(h):
+                continue  # reviewed in the in-group section
             if h["counted"] and w in drops:
                 out["ignore"].append(h["id"])
-            elif h["counted"] and moves.get(w) and moves[w] not in h["labels"]:
+            elif h["counted"] and moves.get(w) and moves[w] not in h["labels"] and moves[w] not in IGB_HANDLED_ELSEWHERE:
                 out["move"].append({"id": h["id"], "label": moves[w]})
                 kept_labels.add(moves[w])
             elif h["counted"]:
@@ -290,7 +312,7 @@ def _apply_answer(group: list[dict], answer: dict) -> dict:
         for code in row.get("add") or []:
             label = LABEL_OF.get(str(code).strip().upper().replace(" ", ""))
             # Already counted in this sentence: adding it again would count it twice.
-            if label and label not in kept_labels:
+            if label and label not in kept_labels and label not in IGB_HANDLED_ELSEWHERE:
                 out["add"].append({"sentence": it["i"], "label": label})
                 kept_labels.add(label)
         tone = row.get("tone") if isinstance(row.get("tone"), dict) else {}
@@ -339,6 +361,8 @@ def reuse(it: dict, rec: dict) -> dict:
         if j is None:
             continue
         w = saved.pop(j)
+        if _igb_only(h):
+            continue  # in-group words are reviewed in the in-group section now
         if h["counted"] and not w.get("counted", True):
             out["ignore"].append(h["id"])
         elif not h["counted"] and w.get("counted"):

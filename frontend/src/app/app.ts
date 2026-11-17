@@ -397,7 +397,17 @@ export class App {
   closeAllRows() { this.cxRows.set(new Set()); }
   cxFilter = signal<'all' | 'changed' | 'names'>('all');
   cxMsg = signal('');
-  cxCodes = Object.keys(LABEL_OF_CODE);
+  // In-group bias is reviewed once, in "In-group bias in context", not here.
+  cxCodes = Object.keys(LABEL_OF_CODE).filter((c) => c !== 'IGB');
+  /** The context check without in-group words: a word only on the IGB list is reviewed in the
+   *  in-group section; a sentence left with nothing to check is dropped. Hit ids stay as they are. */
+  private withoutIgb(rv: Review): Review {
+    const igbOnly = (h: ReviewHit) => h.labels.every((l) => l.startsWith('IGB:'));
+    const sentences = rv.sentences
+      .map((s) => ({ ...s, hits: s.hits.filter((h) => !igbOnly(h)) }))
+      .filter((s) => s.hits.length || s.entities.length);
+    return { ...rv, sentences };
+  }
   readonly Math = Math;
   readonly tones4: Tone[] = ['positive', 'negative', 'mixed', 'neutral'];
   entOpen = signal('');
@@ -578,7 +588,7 @@ export class App {
     this.http.post<Review>(`${API}/context/review`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
       next: (r) => {
         if (this.dictText() !== text) return;
-        this.review.set(r);
+        this.review.set(this.withoutIgb(r));
         if (r.sentences.length && this.meta()?.llm_available !== false) this.startAi(text);
         else this.releaseAi();
       },
@@ -1425,7 +1435,7 @@ export class App {
     this.aiStopped.set(false);
     this.analyzedSpeaker.set(this.speaker());
     this.analyzedSetting.set(this.cleanSetting(this.setting()));
-    this.igOpen.set(null); this.igList.set(''); this.igAi.set(null);
+    this.igOpen.set(null); this.igList.set(''); this.igAi.set(null); this.igDraft.set({});
     if (this.speaker()) this.saveSid.set(this.speaker());
     const picked = this.docSpeeches().find((s) => s.id === this.selectedSpeech());
     this.analyzedSpeech.set(picked ? this.speechLabel(picked) : '');
@@ -1562,6 +1572,31 @@ export class App {
   igDecision(p: IgPassage): IgDecision | undefined {
     return (this.decisions().groups ?? []).find((d) => d.sentence === p.i);
   }
+  /** What a person picked for a sentence but hasn't submitted yet: nothing changes until Submit. */
+  igDraft = signal<Record<number, { group: string; voice: string }>>({});
+  igDraftOf(p: IgPassage): { group: string; voice: string } {
+    const d = this.igDecision(p);
+    return this.igDraft()[p.i] ?? { group: d?.group ?? '', voice: d?.voice ?? '' };
+  }
+  setIgDraft(p: IgPassage, field: 'group' | 'voice', v: string) {
+    this.igDraft.set({ ...this.igDraft(), [p.i]: { ...this.igDraftOf(p), [field]: v } });
+  }
+  igDraftChanged(p: IgPassage): boolean {
+    const d = this.igDecision(p), x = this.igDraft()[p.i];
+    return !!x && (x.group !== (d?.group ?? '') || x.voice !== (d?.voice ?? ''));
+  }
+  /** Submit: the group and the voice go through together, as one reviewed decision. */
+  submitIg(p: IgPassage) {
+    const x = this.igDraftOf(p);
+    const rest = (this.decisions().groups ?? []).filter((d) => d.sentence !== p.i);
+    const next: IgDecision = { sentence: p.i, source: 'person' };
+    if (x.group) next.group = x.group;
+    if (x.voice) next.voice = x.voice;
+    this.decisions.set({ ...this.decisions(), groups: next.group || next.voice ? [...rest, next] : rest });
+    const drafts = { ...this.igDraft() }; delete drafts[p.i]; this.igDraft.set(drafts);
+    this.rescore();
+  }
+  cancelIg(p: IgPassage) { const drafts = { ...this.igDraft() }; delete drafts[p.i]; this.igDraft.set(drafts); }
   /** A person sets the group a sentence's "we" refers to ('' = back to the rules). */
   setIgGroup(p: IgPassage, key: string) {
     const rest = (this.decisions().groups ?? []).filter((d) => d.sentence !== p.i);
@@ -1773,7 +1808,7 @@ export class App {
         this.dict.set(r); this.dictLoading.set(false);
         this.http.post<Review>(`${API}/context/review`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
           next: (rv) => {
-            this.review.set(rv);
+            this.review.set(this.withoutIgb(rv));
             this.rescore();
             const j = this.aiJob();
             if (j?.status === 'running' && j.id) this.pollAi(j.id, text, 500);

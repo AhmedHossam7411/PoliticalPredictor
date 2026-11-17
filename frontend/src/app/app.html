@@ -595,6 +595,7 @@
           @if (!cxOpen()) { <span class="cx-closed-note">{{ t().cx['expand'] }}</span> }</h2>
         @if (cxOpen()) {
         <p class="muted">{{ t().cx['intro'] }}</p>
+        <p class="cx-memory">{{ t().ig['cxNote'] }}</p>
         @if (aiStatus(); as st) {
           <p class="cx-status" [class.running]="aiJob()?.status === 'running'">{{ st }}
             @if (aiJob()?.status === 'running') {
@@ -628,15 +629,18 @@
                 @if (sentenceReused(s)) { <span class="tag cx-ai saved">{{ t().cx['fromSaved'] }}</span> }
                 @else if (sentenceByAi(s)) { <span class="tag cx-ai">{{ t().cx['fromAi'] }}</span> }
                 @for (h of s.hits; track h.id) {
-                  <div class="cx-copy" [class.right]="verdict(h) === 'right'" [class.wrong]="verdict(h) === 'wrong'" [class.moved]="verdict(h) === 'moved'">
+                  <div class="cx-copy" [class.right]="verdict(h) === 'right'" [class.wrong]="verdict(h) === 'wrong' && h.counted"
+                    [class.added]="verdict(h) === 'wrong' && !h.counted" [class.moved]="verdict(h) === 'moved'">
                     <p class="cx-text" dir="auto" (mouseup)="pickPart(s, $event, h.id)">@for (pc of cxPieces().get(s.i + ':' + h.id) ?? []; track $index) {@if (pc.hit; as w) {<mark class="cx-word hl" [style]="hitStyle(w)" [title]="hitTitle(w)">{{ pc.text }}</mark>} @else if (pc.ent) {<span class="ent">{{ pc.text }}</span>} @else {{{ pc.text }}}}</p>
                     <div class="cx-verdict">
                       <span class="cx-initial"><span class="muted">{{ t().cx['initial'] }}</span> <strong>{{ initialOf(h) }}</strong>
                         @if (!h.counted) { <span class="muted">({{ t().cx['notCounted'] }})</span> }</span>
                       <button class="tick right" [class.on]="verdict(h) === 'right'" (click)="markRight(s, h)"
                         [title]="h.counted ? t().cx['rightTip'] : t().cx['rightSkipTip']">✓ {{ t().cx['right'] }}</button>
-                      <button class="tick wrong" [class.on]="verdict(h) === 'wrong'" (click)="markWrong(s, h)"
-                        [title]="h.counted ? t().cx['wrongTip'] : t().cx['wrongSkipTip']">✗ {{ h.counted ? t().cx['wrong'] : t().cx['wrongSkip'] }}</button>
+                      <!-- A left-out word: "Count it" is a choice, not a "wrong" verdict (no ✗, not red) -->
+                      <button class="tick" [class.wrong]="h.counted" [class.add]="!h.counted" [class.on]="verdict(h) === 'wrong'"
+                        (click)="markWrong(s, h)" [title]="h.counted ? t().cx['wrongTip'] : t().cx['wrongSkipTip']">
+                        @if (h.counted) { ✗ {{ t().cx['wrong'] }} } @else { + {{ t().cx['wrongSkip'] }} }</button>
                       @if (movedTo(h); as m) {
                         <span class="cx-moved">↪ {{ codeName(m) }}
                           <button class="sh-x" (click)="unmoveHit(s, h)" [title]="t().cx['moveUndo']" [attr.aria-label]="t().cx['moveUndo']">×</button></span>
@@ -1259,18 +1263,20 @@
       @if (p.refs.length) {
         <div class="ig-fix">
           <label>{{ t().ig['fixGroup'] }}
-            <select [value]="igDecision(p)?.group ?? ''" (change)="setIgGroup(p, $any($event.target).value)">
+            <select [value]="igDraftOf(p).group" (change)="setIgDraft(p, 'group', $any($event.target).value)">
               <option value="">{{ t().ig['fixRules'] }}</option>
               <option value="ambiguous">{{ t().ig['ambiguousShort'] }}</option>
               @for (c of igChoices(); track c.key) { <option [value]="c.key">{{ igGroupName(c) }}</option> }
             </select></label>
           <label>{{ t().ig['fixVoice'] }}
-            <select [value]="igDecision(p)?.voice ?? ''" (change)="setIgVoice(p, $any($event.target).value)">
+            <select [value]="igDraftOf(p).voice" (change)="setIgDraft(p, 'voice', $any($event.target).value)">
               <option value="">{{ t().ig['fixRules'] }}</option>
               @for (v of ['own', 'quoted', 'reported', 'hypothetical', 'question', 'irony']; track v) {
                 <option [value]="v">{{ t().ig['voice_' + v] }}</option>
               }
             </select></label>
+          <button class="small" (click)="submitIg(p)" [disabled]="!igDraftChanged(p)">{{ t().ig['submit'] }}</button>
+          @if (igDraftChanged(p)) { <button class="ghost small" (click)="cancelIg(p)">{{ t().ig['cancel'] }}</button> }
         </div>
       }
     </li>

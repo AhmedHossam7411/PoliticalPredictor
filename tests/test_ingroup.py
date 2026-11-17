@@ -238,6 +238,33 @@ class Safeguards(unittest.TestCase):
             out = ig.ai_check(text, decisions=[{"sentence": 0, "group": "ambiguous", "source": "person"}], home="EG")
         self.assertIsNone({p["i"]: p for p in out["result"]["passages"]}[0]["group"])
 
+    def test_quoted_in_group_sentence_leaves_igb_word_score_once(self):
+        """One answer in the in-group section, one change to the score: marking a sentence
+        quoted removes its IGB words from the word score once, even if repeated."""
+        from predictor import context as ctx
+        text = ("Our nation must defend its homeland. "
+                'He said, "Our nation and our citizens come first."')
+        base = ctx.raw_lta(text)["traits"]["IGB"]["count"]
+        hits_in_1 = sum(1 for s in ctx.review(text)["sentences"] if s["i"] == 1
+                        for h in s["hits"] if "IGB:high" in h["labels"] and h["counted"])
+        self.assertGreater(hits_in_1, 0)
+        dec = {"groups": [{"sentence": 1, "voice": "quoted", "source": "person"}]}
+        after = ctx.raw_lta(text, dec)["traits"]["IGB"]["count"]
+        self.assertEqual(after, base - hits_in_1)
+        # Ignoring the same word in the context check as well doesn't take it off twice.
+        ids = [h["id"] for s in ctx.review(text)["sentences"] if s["i"] == 1 for h in s["hits"]]
+        both = ctx.raw_lta(text, {**dec, "ignore": ids})["traits"]["IGB"]["count"]
+        self.assertEqual(both, base - hits_in_1)
+
+    def test_context_check_does_not_ask_about_igb(self):
+        from predictor import context as ctx
+        group = [{"i": 0, "text": "Our nation is great.", "entities": [],
+                  "hits": [{"id": 0, "word": "nation", "labels": ["IGB:high"], "counted": True}]}]
+        got = ctx._apply_answer(group, {"s": [{"i": 0, "drop": ["nation"], "add": ["IGB", "SC+"]}]})
+        self.assertEqual(got["ignore"], [])                       # IGB word not dropped here
+        self.assertEqual([a["label"] for a in got["add"]], ["SC:high"])  # IGB not added here
+        self.assertNotIn("marked:", ctx._line(group[0]))          # Karnak isn't asked about it
+
     def test_existing_igb_trait_unchanged(self):
         from predictor.lta import score_lta
         tr = score_lta("Our nation and our citizens defend the homeland against foreign threats.")["traits"]["IGB"]

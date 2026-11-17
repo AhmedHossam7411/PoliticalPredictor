@@ -567,6 +567,8 @@ button.tick { background: transparent; color: var(--ink); border: 1px solid var(
   font-size: 0.76rem; font-weight: 600; border-radius: 999px; }
 button.tick.right.on { background: #16a34a; border-color: #16a34a; color: #fff; }
 button.tick.wrong.on { background: #dc2626; border-color: #dc2626; color: #fff; }
+button.tick.add.on { background: #2563eb; border-color: #2563eb; color: #fff; }
+.cx-copy.added { border-color: #93c5fd; background: #eff6ff; }
 .cx-part { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.82rem;
   background: #eef2ff; border-radius: var(--radius); padding: 0.4rem 0.6rem; margin-bottom: 0.4rem; }
 .cx-add.part { background: #ecfeff; color: #155e75; border-color: #a5f3fc; }
