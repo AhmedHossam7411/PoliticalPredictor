@@ -615,9 +615,21 @@ def speeches_of(sid: str) -> list[dict]:
     return out
 
 
-def add_speech(sid: str, text: str, title: str = "", context: dict | None = None) -> dict:
+SETTING_FIELDS = ("event", "host", "audience", "location", "date")
+
+
+def clean_setting(setting: dict | None) -> dict:
+    """The speech metadata the in-group analysis reads; anything else is dropped."""
+    return {k: str(setting[k]).strip()[:200] for k in SETTING_FIELDS
+            if setting and setting.get(k) and str(setting[k]).strip()}
+
+
+def add_speech(sid: str, text: str, title: str = "", context: dict | None = None,
+               setting: dict | None = None) -> dict:
     """Save a speech to this person's file. `context` holds the context-check
-    decisions made on exactly this text, so they apply again whenever it is scored."""
+    decisions made on exactly this text (and the reviewed group references under
+    "groups"), so they apply again whenever it is scored. `setting` is where and to
+    whom it was given (event, host, audience, location, date)."""
     text = (text or "").strip()
     if len(text.split()) < _MIN_SPEECH_WORDS:
         raise ValueError(f"A speech needs at least {_MIN_SPEECH_WORDS} words.")
@@ -628,6 +640,8 @@ def add_speech(sid: str, text: str, title: str = "", context: dict | None = None
               "text": text, "added": _t.strftime("%Y-%m-%d")}
     if context:
         record["context"] = context
+    if (st := clean_setting(setting)):
+        record["setting"] = st
     _store.add_speech(sid, record)
     return word_profile(sid)
 
@@ -651,7 +665,8 @@ def word_profile(sid: str) -> dict:
     speeches = speeches_of(sid)
     listed = [{"id": s["id"], "title": s.get("title") or "", "words": len(s["text"].split()),
                "language": "ar" if is_arabic(s["text"]) else "en", "added": s.get("added"),
-               "removable": s["removable"], "reviewed": bool(s.get("context"))} for s in speeches]
+               "removable": s["removable"], "reviewed": bool(s.get("context")),
+               "setting": s.get("setting") or {}} for s in speeches]
     results = []
     for lang in ("en", "ar"):
         group = [s for s, l in zip(speeches, listed) if l["language"] == lang]
@@ -671,6 +686,49 @@ def word_profile(sid: str) -> dict:
 
 
 _entity_cache: dict[str, list] = {}
+_ingroup_cache: dict[str, list] = {}
+
+
+def _ingroup_results(sid: str) -> list[tuple[dict, dict]]:
+    """The contextual in-group analysis of each speech on file, one by one: each speech
+    keeps its own setting and reviewed references (speech-level context)."""
+    from . import ingroup
+    speeches = speeches_of(sid)
+    records = ingroup.speaker_records(sid)
+    key = _key_of(speeches) + json.dumps([s.get("setting") for s in speeches], sort_keys=True) + repr(records)
+    if key not in _ingroup_cache:
+        if len(_ingroup_cache) > 32:
+            _ingroup_cache.clear()
+        home, role, aff = records
+        _ingroup_cache[key] = [
+            ({"id": sp["id"], "title": sp.get("title") or "", "added": sp.get("added")},
+             ingroup.analyze(sp["text"], setting=sp.get("setting"), decisions=(sp.get("context") or {}).get("groups"),
+                             home=home, role=role, affiliations=aff))
+            for sp in speeches]
+    return _ingroup_cache[key]
+
+
+def ingroup_profile(sid: str) -> dict:
+    """In-group bias per group across this person's speeches on file, plus every group
+    on their records that the speeches don't (yet) give evidence on."""
+    from . import ingroup
+    results = _ingroup_results(sid)
+    merged = ingroup.merge(results) if results else {"method": ingroup.METHOD, "groups": [], "speeches": 0,
+                                                     "overall": ingroup.assess(0, 0)}
+    home, role, aff = ingroup.speaker_records(sid)
+    have = {g["key"] for g in merged["groups"]}
+    recorded = [c for c in ingroup.candidate_groups("", home, role, aff, {"host_entity": None})
+                if c["recorded"] and c["key"] not in have]
+    merged["recorded_without_evidence"] = [
+        {**{k: c[k] for k in ("key", "kind", "name", "name_ar", "relation", "recorded")}, **ingroup.assess(0, 0)}
+        for c in recorded]
+    return merged
+
+
+def ingroup_group(sid: str, key: str) -> dict:
+    """One group's assessment for this person, with the supporting passages."""
+    from . import ingroup
+    return ingroup.organisation_view(sid, key, _ingroup_results(sid), ingroup.speaker_records(sid))
 
 
 def entity_profile(sid: str) -> list[dict]:

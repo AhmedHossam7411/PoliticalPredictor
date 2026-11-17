@@ -28,6 +28,7 @@ from . import auth
 from . import dossier
 from . import context as ctx
 from . import entities
+from . import ingroup
 from . import labels_sync
 from .extract import ExtractError, MAX_BYTES, extract_text
 from .highlight import scorer_spans
@@ -79,6 +80,8 @@ class AnalyzeRequest(BaseModel):
                                                   "country is left out of the places named")
     reactors: list[str] | None = Field(None, description="Stakeholder ids the AI reacts for "
                                                          "(up to 12); the rest get the keyword guess")
+    setting: dict | None = Field(None, description="Speech metadata for the in-group analysis: "
+                                                   "event, host, audience, location, date")
 
 
 class BatchRequest(BaseModel):
@@ -173,9 +176,11 @@ def analyze_endpoint(req: AnalyzeRequest, user: str = Depends(auth.require_auth)
     home = _home(req.speaker)
     # `spans`: where each counted word sits in the text, for highlighting;
     # `entities`: where countries/organizations are named, and what is said of them.
+    # `ingroup`: who "we" are in each sentence and the in-group bias per group (predictor.ingroup).
     return {**analyze_with_bands(req.text, norm), "spans": scorer_spans(req.text),
             "entities": entities.find(req.text, home),
-            "entity_summary": entities.summarize(req.text, exclude=home), "home": [entities.info(k) for k in home]}
+            "entity_summary": entities.summarize(req.text, exclude=home), "home": [entities.info(k) for k in home],
+            "ingroup": ingroup.analyze(req.text, req.speaker or None, req.setting)}
 
 
 def _home(speaker: str | None) -> tuple:
@@ -191,6 +196,7 @@ class ContextRequest(BaseModel):
     norming_corpus: list[str] | None = None
     source: str = "person"
     speaker: str | None = None
+    setting: dict | None = None
 
 
 @app.post("/context/review")
@@ -206,7 +212,40 @@ def context_rescore(req: ContextRequest, user: str = Depends(auth.require_auth))
     home = _home(req.speaker)
     return {**out, "spans": scorer_spans(req.text), "entities": entities.find(req.text, home),
             "entity_summary": entities.summarize(req.text, ctx.tone_map(req.decisions), exclude=home),
-            "home": [entities.info(k) for k in home]}
+            "home": [entities.info(k) for k in home],
+            "ingroup": ingroup.analyze(req.text, req.speaker or None, req.setting,
+                                       (req.decisions or {}).get("groups"))}
+
+
+# --- In-group bias in context ----------------------------------------------
+class InGroupRequest(BaseModel):
+    text: str = Field(..., min_length=1)
+    speaker: str | None = None
+    setting: dict | None = None
+    decisions: list[dict] | None = Field(None, description="Reviewed sentences: "
+                                         "{sentence, group, voice, cats, source}")
+
+
+@app.post("/ingroup")
+def ingroup_endpoint(req: InGroupRequest, user: str = Depends(auth.require_auth)) -> dict:
+    """The contextual in-group analysis again, with reviewed sentences applied."""
+    return ingroup.analyze(req.text, req.speaker or None, req.setting, req.decisions)
+
+
+def _ingroup_ai(req: InGroupRequest) -> dict:
+    try:
+        return ingroup.ai_check(req.text, req.speaker or None, req.setting, req.decisions)
+    except llm.LLMNotConfigured as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    except httpx.ConnectError:
+        raise HTTPException(status_code=503, detail=llm.not_running_reason())
+
+
+@app.post("/jobs/ingroup")
+def job_ingroup(req: InGroupRequest, user: str = Depends(auth.require_auth)) -> dict:
+    """Karnak checks the ambiguous and borderline sentences (referent, voice, categories);
+    the rule-based scorer then recomputes. Poll GET /jobs/{id}."""
+    return {"job": _start_job("ingroup", _ingroup_ai, req)}
 
 
 @app.post("/context/ai")
@@ -334,7 +373,28 @@ def stakeholder_dossier(sid: str, language: str = "en",
     prof = dossier.in_arabic(sid, out["profile"]) if lang == "ar" else out["profile"]
     out = {**out, "profile": dossier.with_edits(sid, prof, stk.profile_edit(sid))}
     return {**out, "person": stk._public(stk.localized(person, lang)), "word_profile": stk.word_profile(sid),
-            "entities": stk.entity_profile(sid)}
+            "entities": stk.entity_profile(sid), "ingroup": stk.ingroup_profile(sid)}
+
+
+@app.get("/stakeholders/{sid}/ingroup")
+def stakeholder_ingroup_profile(sid: str, user: str = Depends(auth.require_auth)) -> dict:
+    """In-group bias per group (country, each recorded organisation, collectives) across
+    this person's speeches on file, each speech read in its own setting."""
+    if not any(s["id"] == sid for s in stk.STAKEHOLDERS):
+        raise HTTPException(status_code=404, detail="No such stakeholder.")
+    return stk.ingroup_profile(sid)
+
+
+@app.get("/stakeholders/{sid}/ingroup/{key}")
+def stakeholder_ingroup(sid: str, key: str, user: str = Depends(auth.require_auth)) -> dict:
+    """This person's in-group bias toward one group (their country, an organisation they
+    belong to, a collective), with the passages from their speeches on file."""
+    if not any(s["id"] == sid for s in stk.STAKEHOLDERS):
+        raise HTTPException(status_code=404, detail="No such stakeholder.")
+    out = stk.ingroup_group(sid, key)
+    if not out:
+        raise HTTPException(status_code=404, detail="No such group for this person.")
+    return out
 
 
 @app.get("/stakeholders/{sid}/entities/{key}")
@@ -350,6 +410,7 @@ class NewSpeech(BaseModel):
     text: str
     title: str = ""
     context: dict | None = None
+    setting: dict | None = None   # event, host, audience, location, date
 
 
 @app.post("/stakeholders/{sid}/speeches")
@@ -358,7 +419,7 @@ def add_stakeholder_speech(sid: str, req: NewSpeech, user: str = Depends(auth.re
     if not any(s["id"] == sid for s in stk.STAKEHOLDERS):
         raise HTTPException(status_code=404, detail="No such stakeholder.")
     try:
-        return stk.add_speech(sid, req.text, req.title, req.context)
+        return stk.add_speech(sid, req.text, req.title, req.context, req.setting)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 

@@ -1,6 +1,6 @@
 import { Component, inject, signal, computed, effect, untracked } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { NgTemplateOutlet } from '@angular/common';
+import { KeyValuePipe, NgTemplateOutlet } from '@angular/common';
 import { HttpClient } from '@angular/common/http';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { LANGS, Lang } from './i18n';
@@ -97,7 +97,9 @@ interface AddDecision { sentence: number; label: string; start?: number; end?: n
 // move: a marked word that belongs to another list in this sentence.
 interface MoveDecision { id: number; label: string; }
 interface Decisions { ignore: number[]; count: number[]; confirm: number[]; add: AddDecision[];
-  tones: ToneDecision[]; noWhole?: number[]; move?: MoveDecision[]; }
+  tones: ToneDecision[]; noWhole?: number[]; move?: MoveDecision[];
+  /** Reviewed in-group references (saved with the speech under context.groups). */
+  groups?: IgDecision[]; }
 interface AiJob { id: string; status: 'running' | 'done' | 'failed' | 'cancelled'; done: number; total: number;
   decisions: { ignore: number[]; count?: number[]; confirm?: number[]; move?: MoveDecision[]; add: AddDecision[]; tones: ToneDecision[] };
   // reused: sentences filled in from saved decisions; examples: saved sentences shown to Karnak.
@@ -106,6 +108,31 @@ interface SentencePiece { text: string; hit?: ReviewHit; ent?: ReviewEntity; }
 // What a stakeholder thinks of a country/organization the analyzed text names.
 interface View extends EntityRef { tone: Tone; source: 'speeches' | 'profile'; statements?: number; note?: string; }
 interface InputInfo { language: 'en' | 'ar'; dialect: 'msa' | 'egyptian' | 'mixed' | null; }
+// In-group bias in context (predictor.ingroup): who "we" are in each sentence.
+interface IgRef { expr: string; start: number; end: number; group: string | null; confidence: string | null;
+  why: string[]; voice: string; candidates: string[]; }
+interface IgPassage { i: number; start: number; end: number; text: string; refs: IgRef[]; group: string | null;
+  groups: string[]; confidence: string; voice: string; modality: string[]; negated: string[];
+  rule_categories: string[]; categories: string[]; reasons: Record<string, string[]>; counted: boolean;
+  bias: boolean; note: string; source: string; }
+interface IgAssess { assessment: string; share: number | null; interval: number[] | null; confidence: string;
+  references: number; bias_sentences: number; }
+interface IgSpeechRow { id: string; title: string; added?: string; setting: string; references: number; bias_sentences: number; }
+interface IgGroup extends IgAssess { key: string; kind: string; name: string; name_ar: string; relation: string;
+  relation_source?: string; recorded: boolean; counts?: Record<string, number>; excluded?: number;
+  speeches?: IgSpeechRow[]; }
+interface IgQuote { text: string; speech: string; setting: string; confidence: string; voice: string;
+  reasons: Record<string, string[]>; why: string[]; source: string; }
+interface IgSetting { type: string; host: EntityRef | null; source: string | null; evidence: string[];
+  metadata: Record<string, string>; }
+interface InGroup { method: Record<string, string>; setting: IgSetting; overall: IgAssess; groups: IgGroup[];
+  candidates: IgGroup[]; passages: IgPassage[]; ambiguous: number; hostility_without_ingroup: number;
+  collective_sentences: number; language: string; }
+interface IgProfile { method: Record<string, string>; overall: IgAssess; groups: IgGroup[]; speeches: number;
+  recorded_without_evidence: IgGroup[]; }
+interface IgOrgView extends IgGroup { quotes: Record<string, IgQuote[]>; method: Record<string, string>; }
+/** A reviewed sentence: its group, voice or categories set by a person or by Karnak. */
+interface IgDecision { sentence: number; group?: string; voice?: string; cats?: string[]; source: string; }
 interface DictResult {
   input?: InputInfo; vics_supported?: boolean;
   lta: { tokens: number; traits: Record<string, DictTrait> };
@@ -113,6 +140,7 @@ interface DictResult {
   entities?: EntitySpan[]; entity_summary?: EntitySummary[]; home?: EntityRef[];
   context?: { ignored: number; counted: number; added: number; toned: number; moved?: number };
   vics: Record<string, { label: string; value?: number }>;
+  ingroup?: InGroup;
 }
 interface LlmTrait { score: number; band: string; rationale: string; }
 // How much of a long document the AI was sent.
@@ -151,7 +179,7 @@ interface WordProfile { results: WordProfileResult[];
   speeches: { id: string; title: string; words: number; language: string; removable: boolean }[]; }
 interface Dossier { id: string; person: PublicStakeholder; profile: DossierProfile | null;
   news: { domestic: NewsItem[]; international: NewsItem[]; speeches: NewsItem[] };
-  errors: string[]; word_profile: WordProfile; entities?: EntitySummary[]; }
+  errors: string[]; word_profile: WordProfile; entities?: EntitySummary[]; ingroup?: IgProfile; }
 interface Mention extends NewsItem { tone: Tone; cues: string[]; place: string | null; }
 interface Mentions { country: string; country_name: string; country_name_ar: string;
   items: Mention[]; total: number; counts: Record<Tone, number>; errors: string[]; }
@@ -168,7 +196,7 @@ const toggled = (list: number[], id: number) => list.includes(id) ? list.filter(
 
 @Component({
   selector: 'app-root',
-  imports: [FormsModule, NgTemplateOutlet],
+  imports: [FormsModule, NgTemplateOutlet, KeyValuePipe],
   host: { '(document:keydown.escape)': 'onEscape()' },
   templateUrl: './app.html',
   styleUrl: './app.css',
@@ -247,7 +275,7 @@ export class App {
 
   /** Stop AI: something is running on Karnak (context check, AI traits or reactions). */
   aiBusy = computed(() => this.llmLoading() || this.stakeLoading() || !!this.aiQueued()
-    || this.aiJob()?.status === 'running');
+    || this.aiJob()?.status === 'running' || this.igAi()?.status === 'running');
   stoppingAi = signal(false);
   aiStopped = signal(false);
 
@@ -648,7 +676,8 @@ export class App {
   /** Score the text again with the decisions; the newest request wins. */
   private rescore() {
     const text = this.dictText(), seq = ++this.rescoreSeq;
-    this.http.post<DictResult>(`${API}/context/rescore`, { text, decisions: this.decisions(), speaker: this.analyzedSpeaker() || null }).subscribe({
+    this.http.post<DictResult>(`${API}/context/rescore`, { text, decisions: this.decisions(), speaker: this.analyzedSpeaker() || null,
+      setting: this.analyzedSetting() }).subscribe({
       next: (r) => { if (seq === this.rescoreSeq && this.dictText() === text) this.dict.set(r); },
       error: (e) => this.error.set(this.msg(e)),
     });
@@ -780,7 +809,8 @@ export class App {
     if (!who) return;
     this.saveBusy.set(true); this.saveMsg.set('');
     this.http.post(`${API}/stakeholders/${encodeURIComponent(sid)}/speeches`,
-      { text: this.dictText(), title: this.analyzedSpeech() || this.uploadedName() || '', context: this.decisions() }).subscribe({
+      { text: this.dictText(), title: this.analyzedSpeech() || this.uploadedName() || '', context: this.decisions(),
+        setting: this.analyzedSetting() }).subscribe({
       next: () => { this.saveBusy.set(false); this.saveMsg.set(this.t().cx['savedTo'].replace('{name}', who.name)); },
       error: (e) => { this.saveBusy.set(false); this.saveMsg.set(e?.error?.detail || this.msg(e)); },
     });
@@ -1082,6 +1112,8 @@ export class App {
   wpFormOpen = signal(false);
   wpText = signal('');
   wpTitle = signal('');
+  wpSetting = signal<Record<string, string>>({});
+  setWpSetting(k: string, v: string) { this.wpSetting.set({ ...this.wpSetting(), [k]: v }); }
   wpBusy = signal(false);
   wpError = signal('');
 
@@ -1101,10 +1133,11 @@ export class App {
     if (!sid) return;
     this.wpBusy.set(true); this.wpError.set('');
     this.http.post<WordProfile>(`${API}/stakeholders/${encodeURIComponent(sid)}/speeches`,
-      { text: this.wpText(), title: this.wpTitle() }).subscribe({
+      { text: this.wpText(), title: this.wpTitle(), setting: this.cleanSetting(this.wpSetting()) }).subscribe({
       next: (wp) => {
         this.setWordProfile(wp); this.wpBusy.set(false);
-        this.wpText.set(''); this.wpTitle.set(''); this.wpFormOpen.set(false);
+        this.wpText.set(''); this.wpTitle.set(''); this.wpSetting.set({}); this.wpFormOpen.set(false);
+        this.refreshDossierIg();
       },
       error: (e) => { this.wpError.set(this.msg(e)); this.wpBusy.set(false); },
     });
@@ -1114,7 +1147,16 @@ export class App {
     const sid = this.dossierFor;
     if (!sid || !window.confirm(this.t().wpConfirmRemove)) return;
     this.http.delete<WordProfile>(`${API}/stakeholders/${encodeURIComponent(sid)}/speeches/${encodeURIComponent(speechId)}`)
-      .subscribe({ next: (wp) => this.setWordProfile(wp), error: (e) => this.wpError.set(this.msg(e)) });
+      .subscribe({ next: (wp) => { this.setWordProfile(wp); this.refreshDossierIg(); },
+        error: (e) => this.wpError.set(this.msg(e)) });
+  }
+
+  /** The in-group profile again, after the speeches on file changed. */
+  private refreshDossierIg() {
+    const sid = this.dossierFor;
+    if (!sid) return;
+    this.http.get<IgProfile>(`${API}/stakeholders/${encodeURIComponent(sid)}/ingroup`)
+      .subscribe({ next: (ig) => { const cur = this.dossier(); if (cur && this.dossierFor === sid) this.dossier.set({ ...cur, ingroup: ig }); } });
   }
 
   /** Read a PDF or text file into the speech box (the same reader as the main upload). */
@@ -1370,6 +1412,7 @@ export class App {
     this.stopAi(true);
     this.review.set(null);
     this.decisions.set(noDecisions());
+    this.igAi.set(null); this.igOpen.set(null);
     this.submittedText.set('');
     this.error.set('');
   }
@@ -1381,6 +1424,8 @@ export class App {
     this.submittedText.set(snapshot);
     this.aiStopped.set(false);
     this.analyzedSpeaker.set(this.speaker());
+    this.analyzedSetting.set(this.cleanSetting(this.setting()));
+    this.igOpen.set(null); this.igList.set(''); this.igAi.set(null);
     if (this.speaker()) this.saveSid.set(this.speaker());
     const picked = this.docSpeeches().find((s) => s.id === this.selectedSpeech());
     this.analyzedSpeech.set(picked ? this.speechLabel(picked) : '');
@@ -1455,6 +1500,141 @@ export class App {
   }
   analyzedSpeaker = signal('');
 
+  // --- Speech setting + in-group bias in context ---------------------------------
+  /** Where and to whom the speech was given (optional); the in-group analysis reads it. */
+  readonly settingFields = ['event', 'host', 'audience', 'location', 'date'];
+  setting = signal<Record<string, string>>({});
+  /** The setting the current results used. */
+  analyzedSetting = signal<Record<string, string>>({});
+  settingCount = computed(() => Object.values(this.setting()).filter((v) => (v ?? '').trim()).length);
+  setSetting(k: string, v: string) { this.setting.set({ ...this.setting(), [k]: v }); }
+  private cleanSetting(s: Record<string, string>): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const k of this.settingFields) if ((s[k] ?? '').trim()) out[k] = s[k].trim();
+    return out;
+  }
+
+  ig = computed(() => this.dict()?.ingroup ?? null);
+  /** The group whose sentences are listed (a key), or none. */
+  igOpen = signal<string | null>(null);
+  igList = signal<'' | 'ambiguous' | 'excluded' | 'hostile'>('');
+  igRows = computed(() => (this.ig()?.groups ?? []));
+  igPassagesOf(key: string): IgPassage[] { return (this.ig()?.passages ?? []).filter((p) => p.group === key); }
+  igAmbiguous = computed(() => (this.ig()?.passages ?? []).filter((p) => p.refs.length && !p.group));
+  igExcluded = computed(() => (this.ig()?.passages ?? []).filter((p) => p.refs.length && p.group && !p.counted));
+  igHostile = computed(() => (this.ig()?.passages ?? []).filter((p) => !p.refs.length));
+  igChoices = computed(() => (this.ig()?.candidates ?? []).filter((c) => c.key !== 'partnership'));
+  igName(key: string | null | undefined, list?: IgGroup[]): string {
+    if (!key) return this.t().ig['ambiguousShort'];
+    const g = (list ?? this.ig()?.candidates ?? []).find((c) => c.key === key);
+    return g ? (this.lang() === 'ar' ? g.name_ar || g.name : g.name) : key;
+  }
+  igGroupName(g: { name: string; name_ar: string }): string { return this.lang() === 'ar' ? g.name_ar || g.name : g.name; }
+  igAssess(a: IgAssess | null | undefined): string {
+    if (!a) return '';
+    return this.t().ig['as_' + a.assessment] ?? a.assessment;
+  }
+  igClass(a: IgAssess | null | undefined): string {
+    const v = a?.assessment ?? '';
+    return ['High', 'Moderate', 'Low'].includes(v) ? 'band ' + this.bandClass(v) : 'band band-too-few-words';
+  }
+  igShare(a: IgAssess | null | undefined): string {
+    if (!a || a.share == null) return '';
+    const iv = a.interval ? ` (95%: ${Math.round(a.interval[0] * 100)}–${Math.round(a.interval[1] * 100)}%)` : '';
+    return this.t().ig['shareOf'].replace('{k}', String(a.bias_sentences)).replace('{n}', String(a.references))
+      .replace('{p}', String(Math.round(a.share * 100))) + iv;
+  }
+  igConf(c: string): string { return this.t().ig['conf_' + c] ?? c; }
+  igCat(c: string | number | symbol): string { return this.t().ig['cat_' + String(c)] ?? String(c); }
+  igVoice(p: IgPassage): string {
+    const bits = [p.voice !== 'own' ? (this.t().ig['voice_' + p.voice] ?? p.voice) : '',
+      ...p.modality.map((m) => this.t().ig['voice_' + m] ?? m)].filter(Boolean);
+    return bits.join(' · ');
+  }
+  igSettingLine = computed(() => {
+    const st = this.ig()?.setting, ig = this.t().ig;
+    if (!st) return '';
+    const md = Object.values(st.metadata ?? {}).filter(Boolean).join(' · ');
+    const type = ig['set_' + st.type] ?? st.type;
+    const host = st.host ? ` · ${this.entName(st.host)}${st.source === 'text' ? ' ' + ig['fromText'] : ''}` : '';
+    return (md ? md + ' — ' : '') + type + host;
+  });
+  igDecision(p: IgPassage): IgDecision | undefined {
+    return (this.decisions().groups ?? []).find((d) => d.sentence === p.i);
+  }
+  /** A person sets the group a sentence's "we" refers to ('' = back to the rules). */
+  setIgGroup(p: IgPassage, key: string) {
+    const rest = (this.decisions().groups ?? []).filter((d) => d.sentence !== p.i);
+    const old = this.igDecision(p);
+    const next: IgDecision | null = key ? { ...(old ?? {}), sentence: p.i, group: key, source: 'person' }
+      : old?.voice ? { sentence: p.i, voice: old.voice, source: 'person' } : null;
+    this.decisions.set({ ...this.decisions(), groups: next ? [...rest, next] : rest });
+    this.rescore();
+  }
+  /** A person marks a sentence as quoted / reported (not the speaker's own view) or own. */
+  setIgVoice(p: IgPassage, voice: string) {
+    const rest = (this.decisions().groups ?? []).filter((d) => d.sentence !== p.i);
+    const old = this.igDecision(p);
+    const next: IgDecision = { ...(old ?? {}), sentence: p.i, source: 'person', voice };
+    if (!voice) delete next.voice;
+    this.decisions.set({ ...this.decisions(), groups: next.group || next.voice ? [...rest, next] : rest });
+    this.rescore();
+  }
+  /** Karnak checks the ambiguous and borderline sentences; the rules then score again. */
+  igAi = signal<{ status: 'running' | 'done' | 'failed'; checked?: number; error?: string } | null>(null);
+  igAiTargets = computed(() => (this.ig()?.passages ?? []).filter((p) => p.refs.length && p.source === 'rules'
+    && (!p.group || p.confidence === 'low' || p.bias || p.voice !== 'own')).length);
+  runIgAi() {
+    const text = this.dictText();
+    if (!text) return;
+    this.igAi.set({ status: 'running' });
+    this.http.post<{ job: string }>(`${API}/jobs/ingroup`, { text, speaker: this.analyzedSpeaker() || null,
+      setting: this.analyzedSetting(), decisions: this.decisions().groups ?? [] }).subscribe({
+      next: ({ job }) => this.pollIgAi(job, text),
+      error: (e) => this.igAi.set({ status: 'failed', error: this.msg(e) }),
+    });
+  }
+  private pollIgAi(id: string, text: string) {
+    setTimeout(() => this.http.get<{ status: string; result: { decisions: IgDecision[]; checked: number } | null; error: string }>(
+      `${API}/jobs/${id}`).subscribe({
+      next: (j) => {
+        if (this.dictText() !== text) return;
+        if (j.status === 'running') { this.pollIgAi(id, text); return; }
+        if (j.status === 'done' && j.result) {
+          this.decisions.set({ ...this.decisions(), groups: j.result.decisions });
+          this.igAi.set({ status: 'done', checked: j.result.checked });
+          this.rescore();
+        } else this.igAi.set({ status: 'failed', error: j.error });
+      },
+      error: (e) => this.igAi.set({ status: 'failed', error: this.msg(e) }),
+    }), 3000);
+  }
+
+  // In-group bias per affiliation, in a stakeholder's profile.
+  dzIgRows = computed(() => {
+    const ig = this.dossier()?.ingroup;
+    return ig ? [...ig.groups.filter((g) => g.key !== 'partnership'), ...ig.recorded_without_evidence] : [];
+  });
+  /** The group key behind a membership line of the profile, if the in-group profile has it. */
+  membershipKey(line: string): string | null {
+    const g = this.dzIgRows().find((r) => r.kind === 'organization' && r.relation.split('; ').includes(line));
+    return g ? g.key : null;
+  }
+  igOrg = signal<IgOrgView | null>(null);
+  igOrgLoading = signal(false);
+  igOrgError = signal('');
+  readonly igQuoteKinds = ['preference', 'superiority', 'differentiation', 'hostility', 'identification', 'excluded', 'ambiguous'];
+  openIgGroup(key: string) {
+    const sid = this.dossierFor;
+    if (!sid) return;
+    this.igOrg.set(null); this.igOrgError.set(''); this.igOrgLoading.set(true);
+    this.http.get<IgOrgView>(`${API}/stakeholders/${encodeURIComponent(sid)}/ingroup/${encodeURIComponent(key)}`).subscribe({
+      next: (g) => { this.igOrg.set(g); this.igOrgLoading.set(false); },
+      error: (e) => { this.igOrgError.set(e?.error?.detail || this.msg(e)); this.igOrgLoading.set(false); },
+    });
+  }
+  closeIgGroup() { this.igOrg.set(null); this.igOrgError.set(''); this.igOrgLoading.set(false); }
+
   /** Text waiting for the AI trait scores and stakeholder reactions until the context check ends. */
   aiQueued = signal('');
 
@@ -1480,7 +1660,7 @@ export class App {
   runDictionary(text: string = this.text()) {
     if (!text.trim()) return;
     this.dictLoading.set(true); this.error.set('');
-    this.http.post<DictResult>(`${API}/analyze`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
+    this.http.post<DictResult>(`${API}/analyze`, { text, speaker: this.analyzedSpeaker() || null, setting: this.analyzedSetting() }).subscribe({
       next: (r) => { this.dict.set(r); this.dictText.set(text); this.dictLoading.set(false); this.loadReview(text); },
       error: (e) => { this.error.set(this.msg(e)); this.dictLoading.set(false); this.releaseAi(); },
     });
@@ -1559,6 +1739,7 @@ export class App {
       decisions: this.decisions(), fromAi: [...this.fromAi()], touched: [...this.touched()],
       aiJob: this.aiJob(), aiQueued: this.aiQueued(),
       speaker: this.speaker(), analyzedSpeaker: this.analyzedSpeaker(),
+      setting: this.setting(), analyzedSetting: this.analyzedSetting(),
     };
     try { sessionStorage.setItem(App.STATE_KEY, JSON.stringify(state)); }
     catch { /* too big or storage off: the analysis still works, it just won't survive a refresh */ }
@@ -1583,10 +1764,11 @@ export class App {
     this.fromAi.set(new Set(st.fromAi ?? [])); this.touched.set(new Set(st.touched ?? []));
     this.aiJob.set(st.aiJob ?? null); this.aiQueued.set(st.aiQueued ?? '');
     this.speaker.set(st.speaker ?? ''); this.analyzedSpeaker.set(st.analyzedSpeaker ?? '');
+    this.setting.set(st.setting ?? {}); this.analyzedSetting.set(st.analyzedSetting ?? {});
     this.restoring = false;
     // The word scorer and the review are quick to redo; the decisions are kept.
     this.dictText.set(text); this.dictLoading.set(true);
-    this.http.post<DictResult>(`${API}/analyze`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
+    this.http.post<DictResult>(`${API}/analyze`, { text, speaker: this.analyzedSpeaker() || null, setting: this.analyzedSetting() }).subscribe({
       next: (r) => {
         this.dict.set(r); this.dictLoading.set(false);
         this.http.post<Review>(`${API}/context/review`, { text, speaker: this.analyzedSpeaker() || null }).subscribe({
@@ -1750,7 +1932,8 @@ export class App {
         <p>${this.esc(b.wordConfNote)}</p>
         <h3>${this.esc(b.politicsHeading)}</h3>
         ${d.vics_supported === false
-          ? `<p>${this.esc(b.vicsEnglishOnly)}</p>` : `<table>${vicsRows}</table>`}`;
+          ? `<p>${this.esc(b.vicsEnglishOnly)}</p>` : `<table>${vicsRows}</table>`}
+        ${this.pdfInGroup()}`;
     }
 
     let ai = '';
@@ -1771,8 +1954,13 @@ export class App {
         <p class="rat">${this.esc(b.aiBlockDesc)}</p>${excerpt}${style}${summ}${rows}`;
     }
 
+    // Parts the AI was still working on when the report was made.
+    const pending = (label: string) => `<h2>${this.esc(label)}</h2><p class="rat">${this.esc(b.pdfPending)}</p>`;
+    if (!l && (this.llmLoading() || this.aiQueued())) ai = pending(b.pdfAiHeading);
+
     let stake = '';
     const st = this.stake();
+    if (!st && (this.stakeLoading() || this.aiQueued())) stake = pending(b.stakeHeading);
     if (st) {
       const rows = st.reactions.map((r) =>
         `<div class="ai-row">
@@ -1822,6 +2010,31 @@ export class App {
       ${stake}
       <p class="foot">${this.esc(b.pdfGenerated)}</p>
       </body></html>`;
+  }
+
+  /** The in-group section of the report: per group, with the sentences that show bias. */
+  private pdfInGroup(): string {
+    const g = this.ig(), ig = this.t().ig;
+    if (!g) return '';
+    const cell = (v: unknown) => `<td>${this.esc(String(v ?? ''))}</td>`;
+    const rows = g.groups.map((r) => `<tr>${cell(this.igGroupName(r))}${cell(r.relation)}${cell(r.references)}
+      ${['identification', 'preference', 'superiority', 'differentiation', 'hostility'].map((c) => cell(r.counts?.[c] ?? 0)).join('')}
+      ${cell(this.igAssess(r) + (r.share != null ? ` · ${Math.round(r.share * 100)}% · ${this.igConf(r.confidence)}` : ''))}</tr>`).join('');
+    const head = `<tr>${[ig['colGroup'], ig['colRelation'], ig['colRefs'], this.igCat('identification'), this.igCat('preference'),
+      this.igCat('superiority'), this.igCat('differentiation'), this.igCat('hostility'), ig['colAssess']]
+      .map((h) => `<td><strong>${this.esc(h)}</strong></td>`).join('')}</tr>`;
+    const evidence = g.passages.filter((p) => p.bias).slice(0, 30).map((p) =>
+      `<li>“${this.esc(p.text)}” — <em>${this.esc(this.igName(p.group))}</em>: ${this.esc(p.categories.map((c) => this.igCat(c)).join(', '))}
+        <div class="rat">${this.esc(Object.entries(p.reasons).map(([k, v]) => `${this.igCat(k)}: ${v.join('; ')}`).join(' · '))}</div></li>`).join('');
+    return `<h3>${this.esc(ig['title'])} (${this.esc(ig['badge'])})</h3>
+      <p class="rat">${this.esc(ig['intro'])}</p>
+      <p><strong>${this.esc(ig['setting'])}</strong> ${this.esc(this.igSettingLine())}</p>
+      <p><strong>${this.esc(ig['overall'])}</strong> ${this.esc(this.igAssess(g.overall))} ${this.esc(this.igShare(g.overall))}
+        (${this.esc(this.igConf(g.overall.confidence))})</p>
+      <p class="rat">${this.esc(ig['counts'].replace('{c}', String(g.collective_sentences)).replace('{a}', String(g.ambiguous)))}</p>
+      ${g.groups.length ? `<table>${head}${rows}</table>` : `<p>${this.esc(ig['none'])}</p>`}
+      ${evidence ? `<ul>${evidence}</ul>` : ''}
+      <p class="rat">${this.esc(g.method['status'])} ${this.esc(g.method['formula'])}. ${this.esc(g.method['bands'])}. ${this.esc(g.method['minimum'])}</p>`;
   }
 
   private msg(e: any): string {

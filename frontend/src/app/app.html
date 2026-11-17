@@ -159,6 +159,18 @@
         }
       }
     </details>
+    <!-- Where and to whom the speech was given: the in-group analysis reads it -->
+    <details class="setting-box">
+      <summary>{{ t().ig['settingTitle'] }}@if (settingCount()) { <span class="hl-count">{{ settingCount() }}</span> }</summary>
+      <p class="pdf-note">{{ t().ig['settingNote'] }}</p>
+      <div class="setting-grid">
+        @for (f of settingFields; track f) {
+          <label><span>{{ t().ig['f_' + f] }}</span>
+            <input dir="auto" [placeholder]="t().ig['ph_' + f]" [value]="setting()[f] || ''"
+              (input)="setSetting(f, $any($event.target).value)"></label>
+        }
+      </div>
+    </details>
     <p class="pdf-note">{{ t().uploadHint }}</p>
     @if (uploadedName(); as name) {
       <p class="pdf-note">{{ t().uploadedFrom }} <strong dir="auto">{{ name }}</strong></p>
@@ -386,6 +398,97 @@
             }
           </div>
           <p class="pdf-note">{{ t().wordConfNote }}</p>
+
+          <!-- In-group bias in context: who "we" are in each sentence, assessed per group -->
+          @if (ig(); as g) {
+            <div class="ig">
+              <h3>{{ t().ig['title'] }} <span class="mode-badge word">{{ t().ig['badge'] }}</span></h3>
+              <p class="pdf-note">{{ t().ig['intro'] }}</p>
+              <p class="ig-setting"><strong>{{ t().ig['setting'] }}</strong> {{ igSettingLine() }}
+                @if (g.setting.evidence.length) { <span class="muted">({{ g.setting.evidence.join('; ') }})</span> }</p>
+              <div class="ig-overall">
+                <span>{{ t().ig['overall'] }}</span>
+                <span [class]="igClass(g.overall)">{{ igAssess(g.overall) }}</span>
+                @if (igShare(g.overall); as sh) { <span class="score">{{ sh }}</span> }
+                <span class="score">{{ igConf(g.overall.confidence) }}</span>
+              </div>
+              <p class="pdf-note">{{ t().ig['counts'].replace('{c}', '' + g.collective_sentences).replace('{a}', '' + g.ambiguous) }}</p>
+              @if (igRows().length) {
+                <div class="ig-table-wrap">
+                  <table class="ig-table">
+                    <thead><tr><th>{{ t().ig['colGroup'] }}</th><th>{{ t().ig['colRelation'] }}</th><th>{{ t().ig['colRefs'] }}</th>
+                      <th>{{ igCat('identification') }}</th><th>{{ igCat('preference') }}</th><th>{{ igCat('superiority') }}</th>
+                      <th>{{ igCat('differentiation') }}</th><th>{{ igCat('hostility') }}</th><th>{{ t().ig['colAssess'] }}</th></tr></thead>
+                    <tbody>
+                      @for (row of igRows(); track row.key) {
+                        <tr class="ig-row" [class.open]="igOpen() === row.key" (click)="igOpen.set(igOpen() === row.key ? null : row.key)"
+                          tabindex="0" (keydown.enter)="igOpen.set(igOpen() === row.key ? null : row.key)">
+                          <td><strong>{{ igGroupName(row) }}</strong></td>
+                          <td class="muted">{{ row.relation }}</td>
+                          <td>{{ row.references }}@if (row.excluded) { <span class="muted"> (+{{ row.excluded }})</span> }</td>
+                          <td>{{ row.counts?.['identification'] }}</td><td>{{ row.counts?.['preference'] }}</td>
+                          <td>{{ row.counts?.['superiority'] }}</td><td>{{ row.counts?.['differentiation'] }}</td>
+                          <td>{{ row.counts?.['hostility'] }}</td>
+                          <td><span [class]="igClass(row)">{{ igAssess(row) }}</span>
+                            @if (row.share != null) { <span class="score">{{ (row.share * 100).toFixed(0) }}% · {{ igConf(row.confidence) }}</span> }</td>
+                        </tr>
+                        @if (igOpen() === row.key) {
+                          <tr class="ig-detail"><td colspan="9">
+                            @if (igShare(row); as sh) { <p class="pdf-note">{{ sh }}</p> }
+                            <ul class="ig-list">
+                              @for (p of igPassagesOf(row.key); track p.i) { <ng-container *ngTemplateOutlet="igPassage; context: { $implicit: p }"></ng-container> }
+                            </ul>
+                          </td></tr>
+                        }
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              } @else { <p class="muted">{{ t().ig['none'] }}</p> }
+              <div class="ig-lists">
+                @if (igAmbiguous().length) {
+                  <button class="ghost small" (click)="igList.set(igList() === 'ambiguous' ? '' : 'ambiguous')">
+                    {{ t().ig['listAmbiguous'] }} ({{ igAmbiguous().length }})</button>
+                }
+                @if (igExcluded().length) {
+                  <button class="ghost small" (click)="igList.set(igList() === 'excluded' ? '' : 'excluded')">
+                    {{ t().ig['listExcluded'] }} ({{ igExcluded().length }})</button>
+                }
+                @if (igHostile().length) {
+                  <button class="ghost small" (click)="igList.set(igList() === 'hostile' ? '' : 'hostile')">
+                    {{ t().ig['listHostile'] }} ({{ igHostile().length }})</button>
+                }
+                @if (meta()?.llm_available !== false) {
+                  <button class="ghost small" (click)="runIgAi()" [disabled]="igAi()?.status === 'running' || !igAiTargets()">
+                    {{ igAi()?.status === 'running' ? t().ig['aiRunning'] : t().ig['aiRun'].replace('{n}', '' + igAiTargets()) }}</button>
+                }
+              </div>
+              @if (igAi(); as a) {
+                @if (a.status === 'done') { <p class="cx-applied">✓ {{ t().ig['aiDone'].replace('{n}', '' + (a.checked ?? 0)) }}</p> }
+                @if (a.status === 'failed') { <p class="error">{{ a.error }}</p> }
+              }
+              @if (igList() === 'ambiguous') {
+                <p class="pdf-note">{{ t().ig['ambiguousNote'] }}</p>
+                <ul class="ig-list">@for (p of igAmbiguous(); track p.i) { <ng-container *ngTemplateOutlet="igPassage; context: { $implicit: p }"></ng-container> }</ul>
+              }
+              @if (igList() === 'excluded') {
+                <p class="pdf-note">{{ t().ig['excludedNote'] }}</p>
+                <ul class="ig-list">@for (p of igExcluded(); track p.i) { <ng-container *ngTemplateOutlet="igPassage; context: { $implicit: p }"></ng-container> }</ul>
+              }
+              @if (igList() === 'hostile') {
+                <p class="pdf-note">{{ t().ig['hostileNote'] }}</p>
+                <ul class="ig-list">@for (p of igHostile(); track p.i) { <ng-container *ngTemplateOutlet="igPassage; context: { $implicit: p }"></ng-container> }</ul>
+              }
+              <details class="ig-method">
+                <summary>{{ t().ig['method'] }}</summary>
+                <dl>
+                  @for (k of ['status', 'unit', 'formula', 'bands', 'minimum', 'overall', 'excluded']; track k) {
+                    <dt>{{ t().ig['m_' + k] }}</dt><dd>{{ g.method[k] }}</dd>
+                  }
+                </dl>
+              </details>
+            </div>
+          }
           } @else if (dictLoading()) {
             <p class="muted">{{ t().wordScorerWait }}</p>
           }
@@ -429,7 +532,9 @@
           <p class="pdf-note">{{ t().pdfMore }}</p>
         }
 
-        <button class="pdf-btn" (click)="openPdfPrompt()" [disabled]="anyLoading()">
+        <!-- Available as soon as the word scores are in; AI parts still running are marked in the report -->
+        <button class="pdf-btn" (click)="openPdfPrompt()" [disabled]="dictLoading() || !dict()"
+          [title]="llmLoading() || stakeLoading() || aiQueued() ? t().pdfEarlyTip : ''">
           {{ t().seePdf }}
         </button>
       </section>
@@ -849,6 +954,13 @@
                   @if (wpFormOpen()) {
                     <div class="wp-form">
                       <input [placeholder]="t().wpTitle" [ngModel]="wpTitle()" (ngModelChange)="wpTitle.set($event)">
+                      <div class="setting-grid">
+                        @for (f of settingFields; track f) {
+                          <label><span>{{ t().ig['f_' + f] }}</span>
+                            <input dir="auto" [placeholder]="t().ig['ph_' + f]" [value]="wpSetting()[f] || ''"
+                              (input)="setWpSetting(f, $any($event.target).value)"></label>
+                        }
+                      </div>
                       <textarea rows="5" dir="auto" [placeholder]="t().wpPaste" [ngModel]="wpText()" (ngModelChange)="wpText.set($event)"></textarea>
                       <div class="wp-actions">
                         <label class="ghost wp-upload">{{ t().wpUpload }}
@@ -859,6 +971,20 @@
                   }
                   @if (wpError()) { <p class="error">{{ wpError() }}</p> }
                 </div>
+              </section>
+              <section>
+                <h3>{{ t().ig['dzTitle'] }}</h3>
+                <p class="muted">{{ t().ig['dzIntro'] }}</p>
+                @if (dzIgRows().length) {
+                  <ul class="dz-ig">
+                    @for (row of dzIgRows(); track row.key) {
+                      <li><button class="link-btn" (click)="openIgGroup(row.key)">{{ igGroupName(row) }}</button>
+                        <span [class]="igClass(row)">{{ igAssess(row) }}</span>
+                        <span class="muted">{{ t().ig['dzRefs'].replace('{n}', '' + row.references) }}@if (row.share != null) { · {{ (row.share * 100).toFixed(0) }}% }</span></li>
+                    }
+                  </ul>
+                }
+                @if (d.ingroup && !d.ingroup.speeches) { <p class="muted">{{ t().ig['dzNoSpeeches'] }}</p> }
               </section>
               <section>
                 <h3>{{ t().cx['dzEntities'] }}</h3>
@@ -876,7 +1002,11 @@
                 <section>
                   <h3>{{ t().dzAlliances }}</h3>
                   <h4>{{ t().dzMemberships }}</h4>
-                  <div class="dz-chips">@for (v of d.profile.memberships; track v) { <span class="dz-chip">{{ v }}</span> }</div>
+                  <div class="dz-chips">@for (v of d.profile.memberships; track v) {
+                    @if (membershipKey(v); as k) {
+                      <button class="dz-chip link" (click)="openIgGroup(k)" [title]="t().ig['dzOpen']">{{ v }}</button>
+                    } @else { <span class="dz-chip">{{ v }}</span> }
+                  }</div>
                   <h4>{{ t().dzPartners }}</h4>
                   <div class="dz-chips">@for (v of d.profile.partners; track v.label) {
                     @if (v.country) {
@@ -932,6 +1062,71 @@
           }
           <footer class="dz-foot">{{ t().dzNote }}
             @if (d.errors.length) { {{ t().dzPartial }} }</footer>
+        }
+      </div>
+    </div>
+  }
+
+  <!-- ===== One stakeholder's in-group bias toward one group (opens over the profile) ===== -->
+  @if (igOrg() || igOrgLoading() || igOrgError()) {
+    <div class="dz-backdrop mz-backdrop" (click)="closeIgGroup()">
+      <div class="dz mz" role="dialog" aria-modal="true" [attr.aria-label]="t().ig['dzTitle']" (click)="$event.stopPropagation()">
+        <header class="dz-head">
+          <div class="dz-title">
+            <h2>{{ igOrg() ? igGroupName(igOrg()!) : t().ig['dzTitle'] }}</h2>
+            @if (igOrg(); as o) { <p class="muted">{{ dossierName() }} · {{ t().ig['colRelation'] }}: {{ o.relation }}</p> }
+          </div>
+          <button class="dz-close" (click)="closeIgGroup()" [attr.aria-label]="t().close">×</button>
+        </header>
+        @if (igOrgLoading()) { <p class="muted dz-pad">{{ t().mzLoading }}</p> }
+        @if (igOrgError()) { <p class="error dz-pad">{{ igOrgError() }}</p> }
+        @if (igOrg(); as o) {
+          <div class="dz-pad">
+            <div class="ig-overall">
+              <span>{{ t().ig['colAssess'] }}</span>
+              <span [class]="igClass(o)">{{ igAssess(o) }}</span>
+              @if (igShare(o); as sh) { <span class="score">{{ sh }}</span> }
+              <span class="score">{{ igConf(o.confidence) }}</span>
+            </div>
+            <p class="pdf-note">{{ t().ig['orgNote'] }}</p>
+            <h4>{{ t().ig['contexts'] }}</h4>
+            @if (o.speeches?.length) {
+              <ul class="ig-ctx">@for (s of o.speeches!; track s.id) {
+                <li><strong dir="auto">{{ s.title || t().wpUntitled }}</strong> · {{ s.setting }} ·
+                  {{ t().ig['dzRefs'].replace('{n}', '' + s.references) }}@if (s.bias_sentences) { · {{ t().ig['biasN'].replace('{n}', '' + s.bias_sentences) }} }</li>
+              }</ul>
+            } @else { <p class="muted">{{ t().ig['noEvidence'] }}</p> }
+            <p class="pdf-note">{{ t().ig['countsLine'].replace('{n}', '' + o.references)
+              .replace('{i}', '' + (o.counts?.['identification'] ?? 0)).replace('{p}', '' + (o.counts?.['preference'] ?? 0))
+              .replace('{s}', '' + (o.counts?.['superiority'] ?? 0)).replace('{d}', '' + (o.counts?.['differentiation'] ?? 0))
+              .replace('{h}', '' + (o.counts?.['hostility'] ?? 0)) }}</p>
+            @for (kind of igQuoteKinds; track kind) {
+              @if (o.quotes[kind]?.length) {
+                <h4>{{ kind === 'excluded' ? t().ig['listExcluded'] : kind === 'ambiguous' ? t().ig['listAmbiguousOrg'] : igCat(kind) }}
+                  <span class="hl-count">{{ o.quotes[kind].length }}</span></h4>
+                <ul class="ig-quotes">
+                  @for (q of o.quotes[kind]; track $index) {
+                    <li><blockquote dir="auto">“{{ q.text }}”</blockquote>
+                      <p class="muted">{{ q.speech || t().wpUntitled }} · {{ q.setting }}
+                        @if (q.confidence && q.confidence !== 'none') { · {{ igConf(q.confidence) }} }
+                        @if (q.voice !== 'own') { · {{ t().ig['voice_' + q.voice] }} }
+                        @if (q.source !== 'rules') { · {{ t().ig['src_' + q.source] }} }</p>
+                      @for (entry of q.reasons | keyvalue; track entry.key) {
+                        <p class="ig-reason"><strong>{{ igCat(entry.key) }}:</strong> {{ entry.value.join('; ') }}</p>
+                      }
+                      @if (q.why.length) { <p class="ig-reason muted">{{ t().ig['whyGroup'] }} {{ q.why.join('; ') }}</p> }
+                    </li>
+                  }
+                </ul>
+              }
+            }
+            <details class="ig-method">
+              <summary>{{ t().ig['method'] }}</summary>
+              <dl>@for (k of ['status', 'unit', 'formula', 'bands', 'minimum']; track k) {
+                <dt>{{ t().ig['m_' + k] }}</dt><dd>{{ o.method[k] }}</dd>
+              }</dl>
+            </details>
+          </div>
         }
       </div>
     </div>
@@ -1039,3 +1234,44 @@
     } @else { <p class="muted">{{ t().dzNoNews }}</p> }
   </ng-template>
 </div>
+
+  <!-- One sentence of the in-group analysis -->
+  <ng-template #igPassage let-p>
+    <li class="ig-pass" [class.bias]="p.bias" [class.off]="!p.counted">
+      <p class="ig-text" dir="auto">{{ p.text }}</p>
+      <div class="ig-tags">
+        @for (c of p.categories; track c) { <span class="ig-cat" [class]="'ig-cat ' + c">{{ igCat(c) }}</span> }
+        <span class="ig-conf">{{ t().ig['refers'] }} <strong>{{ igName(p.group) }}</strong>
+          @if (p.confidence && p.confidence !== 'none') { · {{ igConf(p.confidence) }} }</span>
+        @if (igVoice(p); as v) { <span class="ig-voice">{{ v }}</span> }
+        @if (p.source !== 'rules') { <span class="ig-src">{{ t().ig['src_' + p.source] }}</span> }
+      </div>
+      <ul class="ig-why">
+        @for (r of p.refs; track r.start) {
+          @if (r.why.length) { <li><span class="code">{{ r.expr }}</span> {{ r.why.join('; ') }}</li> }
+        }
+        @for (entry of p.reasons | keyvalue; track entry.key) {
+          <li><strong>{{ igCat(entry.key) }}:</strong> {{ entry.value.join('; ') }}</li>
+        }
+        @for (n of p.negated; track n) { <li class="muted">{{ t().ig['negatedCue'] }} {{ n }}</li> }
+        @if (p.note) { <li class="muted">{{ p.note }}</li> }
+      </ul>
+      @if (p.refs.length) {
+        <div class="ig-fix">
+          <label>{{ t().ig['fixGroup'] }}
+            <select [value]="igDecision(p)?.group ?? ''" (change)="setIgGroup(p, $any($event.target).value)">
+              <option value="">{{ t().ig['fixRules'] }}</option>
+              <option value="ambiguous">{{ t().ig['ambiguousShort'] }}</option>
+              @for (c of igChoices(); track c.key) { <option [value]="c.key">{{ igGroupName(c) }}</option> }
+            </select></label>
+          <label>{{ t().ig['fixVoice'] }}
+            <select [value]="igDecision(p)?.voice ?? ''" (change)="setIgVoice(p, $any($event.target).value)">
+              <option value="">{{ t().ig['fixRules'] }}</option>
+              @for (v of ['own', 'quoted', 'reported', 'hypothetical', 'question', 'irony']; track v) {
+                <option [value]="v">{{ t().ig['voice_' + v] }}</option>
+              }
+            </select></label>
+        </div>
+      }
+    </li>
+  </ng-template>
