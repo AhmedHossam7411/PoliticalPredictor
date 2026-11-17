@@ -56,6 +56,7 @@ COUNTRIES_EXTRA = {
     "DJ": ("Djibouti", "جيبوتي", ["Djibouti"], ["جيبوتي"]),
     "PL": ("Poland", "بولندا", ["Poland", "Polish", "Warsaw"], ["بولندا", "البولندي"]),
     "CO": ("Colombia", "كولومبيا", ["Colombia", "Colombian"], ["كولومبيا"]),
+    "PT": ("Portugal", "البرتغال", ["Portugal", "Portuguese", "Lisbon"], ["البرتغال", "البرتغالي"]),
     # Moved here from entities.py so profiles can link to them too.
 
     "UA": ("Ukraine", "أوكرانيا", ["Ukraine", "Ukrainian", "Kyiv", "Kiev"], ["أوكرانيا", "الأوكراني", "الأوكرانية", "كييف"]),

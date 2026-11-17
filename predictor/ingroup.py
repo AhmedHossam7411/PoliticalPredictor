@@ -258,7 +258,8 @@ def _membership_groups(lines: list[str]) -> list[dict]:
     out: dict[str, dict] = {}
     for line in lines:
         line = (line or "").strip()
-        if not line:
+        # "Not a member of the PLO" records a non-affiliation: no group to assess.
+        if not line or re.match(r"(?i)^(?:not|no longer|never)\b", line):
             continue
         found = [m["key"] for m in entities.find(line) if entities.ENTITIES[m["key"]]["kind"] == "organization"]
         if found:
@@ -1439,3 +1440,46 @@ def ai_check(text: str, speaker: str | None = None, setting: dict | None = None,
     merged = keep + [d for d in made if d["sentence"] not in person_at]
     return {"decisions": merged, "checked": len(targets),
             "result": analyze(text, speaker, setting, merged, **records)}
+
+
+# --------------------------------------------------------------------------- #
+# Change over time, for the profile's "See data"
+# --------------------------------------------------------------------------- #
+FLASH_SHIFT = 0.25      # bias share moving this much from the speeches before = a flash point
+FLASH_MIN_REFS = 3      # sentences about the group needed in the speech, and before it
+FLASH_RULE = (f"A speech is flagged when its bias share for a group differs by at least {int(FLASH_SHIFT * 100)} "
+              f"percentage points from all the earlier speeches pooled, with at least {FLASH_MIN_REFS} sentences "
+              "about the group in that speech and before it. Speeches are in date order: the date in the "
+              "speech setting, else the date it was saved.")
+
+
+def timeline(results: list[tuple[dict, dict]]) -> dict:
+    """Per group, the speeches in date order: sentences examined, bias sentences, share,
+    and flash points."""
+    rows = sorted(results, key=lambda x: x[0].get("date") or "")
+    groups: dict[str, dict] = {}
+    for sp, r in rows:
+        for g in r["groups"]:
+            if g["key"] == "partnership":
+                continue
+            m = groups.setdefault(g["key"], {"key": g["key"], "name": g["name"], "name_ar": g["name_ar"],
+                                              "examined": 0, "points": []})
+            m["examined"] += g["references"]
+            m["points"].append({"id": sp.get("id"), "title": sp.get("title") or "", "date": sp.get("date"),
+                                "references": g["references"], "bias_sentences": g["bias_sentences"],
+                                "share": round(g["bias_sentences"] / g["references"], 3) if g["references"] else None,
+                                "flash": False})
+    flash = []
+    for m in groups.values():
+        prior_refs = prior_bias = 0
+        for pt in m["points"]:
+            if pt["references"] >= FLASH_MIN_REFS and prior_refs >= FLASH_MIN_REFS:
+                before = prior_bias / prior_refs
+                if abs(pt["share"] - before) >= FLASH_SHIFT:
+                    pt["flash"] = True
+                    flash.append({"group": m["key"], "name": m["name"], "name_ar": m["name_ar"], "title": pt["title"],
+                                  "date": pt["date"], "before": round(before, 3), "after": pt["share"]})
+            prior_refs += pt["references"]
+            prior_bias += pt["bias_sentences"]
+    return {"groups": sorted(groups.values(), key=lambda g: -g["examined"]), "flash_points": flash,
+            "rule": FLASH_RULE}

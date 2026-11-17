@@ -128,7 +128,16 @@ interface IgSetting { type: string; host: EntityRef | null; source: string | nul
 interface InGroup { method: Record<string, string>; setting: IgSetting; overall: IgAssess; groups: IgGroup[];
   candidates: IgGroup[]; passages: IgPassage[]; ambiguous: number; hostility_without_ingroup: number;
   collective_sentences: number; language: string; }
-interface IgProfile { method: Record<string, string>; overall: IgAssess; groups: IgGroup[]; speeches: number;
+interface IgTimelinePoint { id: string; title: string; date: string | null; references: number;
+  bias_sentences: number; share: number | null; flash: boolean; }
+interface IgTimeline { groups: { key: string; name: string; name_ar: string; examined: number; points: IgTimelinePoint[] }[];
+  flash_points: { group: string; name: string; name_ar: string; title: string; date: string | null; before: number; after: number }[];
+  rule: string; }
+interface TraitTimeline { points: { id: string; title: string; date: string | null; words: number;
+  traits: Record<string, { band: string; percent: number }>; flags: string[] }[];
+  flash_points: { trait: string; title: string; date: string | null; before: string; after: string;
+    before_percent: number; after_percent: number }[]; rule: string; }
+interface IgProfile { timeline?: IgTimeline; method: Record<string, string>; overall: IgAssess; groups: IgGroup[]; speeches: number;
   recorded_without_evidence: IgGroup[]; }
 interface IgOrgView extends IgGroup { quotes: Record<string, IgQuote[]>; method: Record<string, string>; }
 /** A reviewed sentence: its group, voice or categories set by a person or by Karnak. */
@@ -162,7 +171,7 @@ interface Reaction { id: string; name: string; role: string; stance: string;
 interface StakeResult { reactions: Reaction[]; method: string; model?: string;
   calibrated?: boolean; fallback_reason?: string; excerpted?: Excerpted | null; reactors?: string[];
   read_in_parts?: { parts: number; total_words: number } | null; }
-interface PublicStakeholder { id: string; name: string; role: string; scope?: string;
+interface PublicStakeholder { id: string; name: string; role: string; scope?: string; country?: string; country_ar?: string;
   personality?: string; values: string[]; supports: string[]; opposes: string[];
   concerns: string[]; custom: boolean; category?: string; edited?: boolean; }
 interface SpeechOpt { id: string; label: string; }
@@ -173,7 +182,7 @@ interface DossierProfile { country: string; cc: string; name_local: string;
   official: { name: string; url: string }[]; background: string; leadership_style: string;
   personality_type: string[]; memberships: string[]; partners: Relation[]; frictions: Relation[]; }
 // The word scorer run on this person's own speeches: one result per language.
-interface WordProfileResult { language: 'en' | 'ar'; speeches: number; tokens: number;
+interface WordProfileResult { language: 'en' | 'ar'; speeches: number; tokens: number; timeline?: TraitTimeline;
   traits: Record<string, { band: string; percent: number; confidence?: string }>; }
 interface WordProfile { results: WordProfileResult[];
   speeches: { id: string; title: string; words: number; language: string; removable: boolean }[]; }
@@ -257,8 +266,19 @@ export class App {
   nsName = signal(''); nsRole = signal(''); nsCategory = signal('');
   readonly shGroups = ['organization', 'state', 'nonstate', 'ngo', 'other'];
   /** The panel split into its four groups, always in this order and numbering. */
-  stakeholderGroups = computed(() => this.shGroups
-    .map((g) => ({ key: g, people: this.stakeholders().filter((s) => (s.category || 'other') === g) })));
+  stakeholderGroups = computed(() => {
+    const ar = this.lang() === 'ar';
+    const where = (s: PublicStakeholder) => ((ar ? s.country_ar : s.country) || s.country || '').trim();
+    const coll = new Intl.Collator(ar ? 'ar' : 'en', { sensitivity: 'base' });
+    // Alphabetical by country; people without a country follow, by name.
+    const order = (a: PublicStakeholder, b: PublicStakeholder) => {
+      const ca = where(a), cb = where(b);
+      if (!!ca !== !!cb) return ca ? -1 : 1;
+      return coll.compare(ca, cb) || coll.compare(a.name, b.name);
+    };
+    return this.shGroups.map((g) => ({ key: g,
+      people: this.stakeholders().filter((s) => (s.category || 'other') === g).sort(order) }));
+  });
   nsValues = signal(''); nsSupports = signal(''); nsOpposes = signal(''); nsConcerns = signal('');
   speechMode = signal<'new' | 'existing' | 'none'>('new');
   nsSpeechText = signal(''); nsSpeechFrom = signal('');
@@ -395,7 +415,7 @@ export class App {
   }
   openAllRows() { this.cxRows.set(new Set(this.cxList().slice(0, this.cxShown()).map((s) => s.i))); }
   closeAllRows() { this.cxRows.set(new Set()); }
-  cxFilter = signal<'all' | 'changed' | 'names'>('all');
+  cxFilter = signal<'all' | 'unchanged' | 'changed' | 'names'>('all');
   cxMsg = signal('');
   // In-group bias is reviewed once, in "In-group bias in context", not here.
   cxCodes = Object.keys(LABEL_OF_CODE).filter((c) => c !== 'IGB');
@@ -439,7 +459,7 @@ export class App {
   cxList = computed(() => {
     const f = this.cxFilter(), changed = this.changedSentences();
     return (this.review()?.sentences ?? []).filter((s) =>
-      f === 'all' || (f === 'changed' ? changed.has(s.i) : s.entities.length > 0));
+      f === 'all' || (f === 'changed' ? changed.has(s.i) : f === 'unchanged' ? !changed.has(s.i) : s.entities.length > 0));
   });
   cxPieces = computed(() => {
     // Key `${sentence}:${hit}`: the sentence with only that word marked ('-' = no word).
@@ -1422,7 +1442,12 @@ export class App {
     this.stopAi(true);
     this.review.set(null);
     this.decisions.set(noDecisions());
-    this.igAi.set(null); this.igOpen.set(null);
+    this.igAi.set(null); this.igOpen.set(null); this.igDraft.set({});
+    // Start over: who is speaking, who reacts and the speech setting are chosen again.
+    this.speaker.set(''); this.speakerQuery.set(''); this.analyzedSpeaker.set('');
+    this.setReactors([App.NO_REACTORS]);
+    this.setting.set({}); this.analyzedSetting.set({});
+    this.stakeNone.set(false);
     this.submittedText.set('');
     this.error.set('');
   }
@@ -1485,12 +1510,14 @@ export class App {
   /** The ids actually used: the saved choice, or the server's default panel. */
   chosenReactors = computed(() => {
     const ids = new Set(this.stakeholders().map((s) => s.id));
+    if (this.reactors().includes(App.NO_REACTORS)) return [];
     const mine = this.reactors().filter((id) => ids.has(id));
     const fallback = ['sisi', 'mbs', 'mbz', 'tamim', 'abdullah-ii', 'erdogan', 'netanyahu',
       'pezeshkian', 'abbas', 'sharaa', 'madbouly', 'abdelatty'];
     return mine.length ? mine : (this.meta()?.default_reactors ?? fallback).filter((id) => ids.has(id));
   });
   isReactor(id: string) { return this.chosenReactors().includes(id); }
+  static readonly NO_REACTORS = '__none__';
   toggleReactor(id: string) {
     const now = this.chosenReactors();
     const next = now.includes(id) ? now.filter((x) => x !== id)
@@ -1655,6 +1682,10 @@ export class App {
     const g = this.dzIgRows().find((r) => r.kind === 'organization' && r.relation.split('; ').includes(line));
     return g ? g.key : null;
   }
+  /** "See data" in the profile: the change over time of the traits / in-group bias. */
+  wpSeeData = signal(false);
+  igSeeData = signal(false);
+  pct(v: number | null | undefined): string { return v == null ? '—' : `${Math.round(v * 100)}%`; }
   igOrg = signal<IgOrgView | null>(null);
   igOrgLoading = signal(false);
   igOrgError = signal('');
@@ -1681,8 +1712,12 @@ export class App {
     this.runStakeholders(text);
   }
 
+  /** Reactions were skipped because nobody is chosen to react. */
+  stakeNone = signal(false);
   runStakeholders(text: string = this.text()) {
     if (!text.trim()) return;
+    this.stakeNone.set(!this.chosenReactors().length);
+    if (this.stakeNone()) { this.stake.set(null); this.stakeLoading.set(false); return; }
     this.stanceFilter.set('All');
     this.stakeLoading.set(true); this.error.set('');
     this.http.post<{ job: string }>(`${API}/jobs/stakeholders`, { text, language: this.lang(), speaker: this.analyzedSpeaker() || null,

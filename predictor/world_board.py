@@ -75,6 +75,50 @@ PEOPLE = [
        "frictions": ["أزمات الديون في الدول الفقيرة"],
        "ptype": ["بعقلية رجل الأعمال", "يركز على النتائج", "براغماتي", "بارع في بناء العلاقات"]}),
 
+    # ---------------- United Nations ----------------
+    # Term ends 31 December 2026; the successor was still being selected in November 2026.
+    P("guterres", "António Guterres", "Secretary-General of the United Nations", "PT", "organization",
+      "United Nations",
+      "A soft-spoken former socialist prime minister and refugee chief who speaks bluntly about war, "
+      "climate and the failings of the Security Council.",
+      ["Multilateralism", "Human rights", "International law", "Climate action", "Humanitarian protection"],
+      ["A ceasefire and humanitarian access in Gaza", "A two-state solution", "Climate finance for poor countries",
+       "Reform of the Security Council and the global financial system", "UN peacekeeping and mediation"],
+      ["Violations of international humanitarian law", "Attacks on UN staff and agencies such as UNRWA",
+       "Forced displacement", "Unilateral use of force"],
+      ["Funding cuts to the UN", "Civilian casualties in Gaza, Sudan and Ukraine", "Climate change",
+       "Paralysis of the Security Council"],
+      ["Issue a statement through his spokesperson", "Brief the Security Council", "Call for a ceasefire",
+       "Launch a humanitarian appeal"],
+      "Prime Minister of Portugal (1995-2002) and UN High Commissioner for Refugees (2005-2015). "
+      "UN Secretary-General since January 2017, re-elected for a second term from 2022; his term ends on "
+      "31 December 2026.",
+      "Moral and outspoken in public, a coalition-builder in private; uses the authority of his office "
+      "rather than power, often through stark warnings and appeals to international law.",
+      ["United Nations (Secretary-General)"],
+      ["European Union", "African Union", "Qatar", "Egypt"],
+      ["Israel over Gaza and UNRWA", "Russia over Ukraine"],
+      ["Principled", "Outspoken", "Multilateralist", "Diplomatic"],
+      {"name": "أنطونيو غوتيريش", "role": "الأمين العام للأمم المتحدة",
+       "personality": "رئيس وزراء اشتراكي سابق ومفوض سابق للاجئين، هادئ الصوت لكنه صريح بشأن الحروب والمناخ وإخفاقات مجلس الأمن.",
+       "values": ["التعددية", "حقوق الإنسان", "القانون الدولي", "العمل المناخي", "الحماية الإنسانية"],
+       "supports": ["وقف إطلاق النار ووصول المساعدات في غزة", "حل الدولتين", "تمويل المناخ للدول الفقيرة",
+                    "إصلاح مجلس الأمن والنظام المالي العالمي", "حفظ السلام والوساطة الأممية"],
+       "opposes": ["انتهاكات القانون الدولي الإنساني", "الاعتداء على موظفي الأمم المتحدة ووكالاتها مثل الأونروا",
+                   "التهجير القسري", "الاستخدام الأحادي للقوة"],
+       "concerns": ["تقليص تمويل الأمم المتحدة", "الضحايا المدنيون في غزة والسودان وأوكرانيا", "تغير المناخ",
+                    "شلل مجلس الأمن"],
+       "responses": ["إصدار بيان عبر المتحدث باسمه", "تقديم إحاطة لمجلس الأمن", "الدعوة إلى وقف إطلاق النار",
+                     "إطلاق نداء إنساني"],
+       "country": "الأمم المتحدة",
+       "background": "رئيس وزراء البرتغال (1995-2002) والمفوض السامي للأمم المتحدة لشؤون اللاجئين (2005-2015). أمين عام للأمم المتحدة منذ يناير 2017، وأعيد انتخابه لولاية ثانية بدأت في 2022؛ تنتهي ولايته في 31 ديسمبر 2026.",
+       "leadership_style": "أخلاقي وصريح في العلن، وبانٍ للتوافقات في الكواليس؛ يعتمد على سلطة منصبه لا على القوة، غالبًا عبر تحذيرات حادة ونداءات إلى القانون الدولي.",
+       "memberships": ["الأمم المتحدة (الأمين العام)"],
+       "partners": ["الاتحاد الأوروبي", "الاتحاد الأفريقي", "قطر", "مصر"],
+       "frictions": ["إسرائيل بسبب غزة والأونروا", "روسيا بسبب أوكرانيا"],
+       "ptype": ["مبدئي", "صريح", "متعدد الأطراف", "دبلوماسي"]},
+      local="António Guterres"),
+
     # ---------------- Other actors ----------------
     P("rubio", "Marco Rubio", "US Secretary of State and National Security Adviser", "US", "other",
       "United States",

@@ -370,6 +370,15 @@ def _public(s: dict) -> dict:
                                  "values", "supports", "opposes", "concerns")}
     out["custom"] = bool(s.get("custom"))
     out["category"] = category_of(s)
+    # The country the panel sorts by (their home country; none for e.g. a custom entry).
+    cc = home_country(s.get("id"))
+    if cc:
+        from .entities import info
+        try:
+            i = info(cc)
+            out["country"], out["country_ar"] = i["name"], i["name_ar"]
+        except KeyError:
+            pass
     out["edited"] = bool(s.get("edited"))
     return out
 
@@ -674,8 +683,10 @@ def word_profile(sid: str) -> dict:
             continue
         key = f"{lang}:{_key_of(group)}"
         if key not in _profile_cache:
-            r = band_lta(merge_lta([raw_lta(s["text"], s.get("context")) for s in group]))
+            raws = [raw_lta(s["text"], s.get("context")) for s in group]
+            r = band_lta(merge_lta([__import__("copy").deepcopy(x) for x in raws]))
             _profile_cache[key] = {
+                "timeline": trait_timeline(group, raws),
                 "language": lang, "speeches": len(group), "tokens": r["tokens"],
                 "reviewed": sum(1 for s in group if s.get("context")),
                 "traits": {t: {"band": v["band"], "percent": round(v.get("percent", 0.0), 1),
@@ -683,6 +694,50 @@ def word_profile(sid: str) -> dict:
             }
         results.append(_profile_cache[key])
     return {"speeches": listed, "results": results}
+
+
+# A speech whose band for a trait is at the opposite end from all the earlier speeches
+# pooled (High vs Low; problem-solving vs relationship-building) is a flash point.
+_OPPOSITE = {("High", "Low"), ("Low", "High"), ("Problem-solving", "Relationship-building"),
+             ("Relationship-building", "Problem-solving")}
+RATIO_FLASH_POINTS = 20  # two-list traits (CC, SC, TASK) must also move this many percentage points
+TRAIT_FLASH_RULE = ("A speech is flagged for a trait when its own result is at the opposite end (High vs Low, "
+                    "or problem-solving vs relationship-building) from all the earlier speeches on file pooled; "
+                    f"for CC, SC and TASK the share must also move by at least {RATIO_FLASH_POINTS} percentage points. "
+                    "Speeches are in date order: the date in the speech setting, else the date it was saved.")
+
+
+def _speech_date(sp: dict) -> str:
+    return (sp.get("setting") or {}).get("date") or sp.get("added") or ""
+
+
+def trait_timeline(group: list[dict], raws: list[dict]) -> dict:
+    """Each speech's own trait results in date order, with flash points."""
+    import copy
+    from .score import band_lta, merge_lta, LTA_TRAITS
+    order = sorted(range(len(group)), key=lambda k: _speech_date(group[k]))
+    points, flash, prior = [], [], []
+    for k in order:
+        sp, raw = group[k], raws[k]
+        own = band_lta(copy.deepcopy(raw))
+        before = band_lta(merge_lta(copy.deepcopy(prior))) if prior else None
+        pt = {"id": sp["id"], "title": sp.get("title") or "", "words": len(sp["text"].split()),
+              "date": _speech_date(sp) or None,
+              "traits": {t: {"band": own["traits"][t]["band"], "percent": round(own["traits"][t].get("percent", 0.0), 1)}
+                         for t in LTA_TRAITS}, "flags": []}
+        if before:
+            for t in LTA_TRAITS:
+                moved = abs(pt["traits"][t]["percent"] - before["traits"][t].get("percent", 0.0))
+                big = before["traits"][t]["kind"] == "density" or moved >= RATIO_FLASH_POINTS
+                if (before["traits"][t]["band"], pt["traits"][t]["band"]) in _OPPOSITE and big:
+                    pt["flags"].append(t)
+                    flash.append({"trait": t, "title": pt["title"], "date": pt["date"],
+                                  "before": before["traits"][t]["band"], "after": pt["traits"][t]["band"],
+                                  "before_percent": round(before["traits"][t].get("percent", 0.0), 1),
+                                  "after_percent": pt["traits"][t]["percent"]})
+        points.append(pt)
+        prior.append(raw)
+    return {"points": points, "flash_points": flash, "rule": TRAIT_FLASH_RULE}
 
 
 _entity_cache: dict[str, list] = {}
@@ -701,7 +756,8 @@ def _ingroup_results(sid: str) -> list[tuple[dict, dict]]:
             _ingroup_cache.clear()
         home, role, aff = records
         _ingroup_cache[key] = [
-            ({"id": sp["id"], "title": sp.get("title") or "", "added": sp.get("added")},
+            ({"id": sp["id"], "title": sp.get("title") or "", "added": sp.get("added"),
+              "date": _speech_date(sp) or None},
              ingroup.analyze(sp["text"], setting=sp.get("setting"), decisions=(sp.get("context") or {}).get("groups"),
                              home=home, role=role, affiliations=aff))
             for sp in speeches]
@@ -722,6 +778,7 @@ def ingroup_profile(sid: str) -> dict:
     merged["recorded_without_evidence"] = [
         {**{k: c[k] for k in ("key", "kind", "name", "name_ar", "relation", "recorded")}, **ingroup.assess(0, 0)}
         for c in recorded]
+    merged["timeline"] = ingroup.timeline(results)
     return merged
 
 

@@ -166,7 +166,7 @@
       <div class="setting-grid">
         @for (f of settingFields; track f) {
           <label><span>{{ t().ig['f_' + f] }}</span>
-            <input dir="auto" [placeholder]="t().ig['ph_' + f]" [value]="setting()[f] || ''"
+            <input dir="auto" [type]="f === 'date' ? 'date' : 'text'" [placeholder]="t().ig['ph_' + f]" [value]="setting()[f] || ''"
               (input)="setSetting(f, $any($event.target).value)"></label>
         }
       </div>
@@ -609,6 +609,7 @@
         @if (rv.sentences.length) {
           <div class="stake-filters">
             <button class="filter-chip" [class.active]="cxFilter() === 'all'" (click)="cxFilter.set('all')">{{ t().cx['filterAll'] }} ({{ rv.sentences.length }})</button>
+            <button class="filter-chip" [class.active]="cxFilter() === 'unchanged'" (click)="cxFilter.set('unchanged')">{{ t().cx['filterUnchanged'] }} ({{ rv.sentences.length - changedSentences().size }})</button>
             <button class="filter-chip" [class.active]="cxFilter() === 'changed'" (click)="cxFilter.set('changed')">{{ t().cx['filterChanged'] }} ({{ changedSentences().size }})</button>
             <button class="filter-chip" [class.active]="cxFilter() === 'names'" (click)="cxFilter.set('names')">{{ t().cx['filterNames'] }}</button>
           </div>
@@ -734,7 +735,7 @@
   @if (analyzed() && !stake() && !stakeLoading() && !aiQueued()) {
     <section class="card">
       <h2>{{ t().stakeHeading }}</h2>
-      <p class="muted">{{ t().stakeMissing }}</p>
+      <p class="muted">{{ stakeNone() || !chosenReactors().length ? t().ig['stakeNone'] : t().stakeMissing }}</p>
       <button (click)="runStakeholders(submittedText())" [disabled]="!submittedText()">{{ t().stakeGet }}</button>
     </section>
   }
@@ -935,16 +936,51 @@
                 <div class="wp">
                   <h4>{{ t().wpHeading }}</h4>
                   @for (r of d.word_profile.results; track r.language) {
-                    <div class="wp-boxes">
+                    <div class="wp-rows">
                       @for (tr of traits; track tr) {
-                        <span class="band wp-box" [class]="'band wp-box ' + bandClass(r.traits[tr].band)"
-                          [title]="t().traitNames[tr] + ': ' + bandLabel(r.traits[tr].band) + ' (' + r.traits[tr].percent + '%)'">
-                          {{ tr }} {{ bandLabel(r.traits[tr].band) }}</span>
+                        <div class="wp-row">
+                          <span class="wp-name">{{ t().traitNames[tr] }} <span class="code">{{ tr }}</span></span>
+                          <span [class]="'band ' + bandClass(r.traits[tr].band)">{{ bandLabel(r.traits[tr].band) }}</span>
+                          <span class="wp-pct">{{ r.traits[tr].percent }}%</span>
+                        </div>
                       }
                     </div>
                     <p class="wp-sum">{{ bandSummary(r.traits) }}
                       <span class="muted">{{ wpBasis(r) }}</span></p>
                   } @empty { <p class="muted wp-sum">{{ t().wpNone }}</p> }
+                  @if (d.word_profile.results.length) {
+                    <button class="ghost small see-data" (click)="wpSeeData.set(!wpSeeData())">
+                      {{ wpSeeData() ? t().ig['hideData'] : t().ig['seeData'] }}</button>
+                    @if (wpSeeData()) {
+                      @for (r of d.word_profile.results; track r.language) {
+                        @if (r.timeline; as tl) {
+                          <p class="pdf-note">{{ t().ig['traitData'] }}</p>
+                          <div class="ig-table-wrap"><table class="ig-table see-table">
+                            <thead><tr><th>{{ t().ig['tlSpeech'] }}</th><th>{{ t().ig['tlDate'] }}</th>
+                              @for (tr of traits; track tr) { <th [title]="t().traitNames[tr]">{{ tr }}</th> }</tr></thead>
+                            <tbody>@for (pt of tl.points; track pt.id) {
+                              <tr><td dir="auto">{{ pt.title || t().wpUntitled }}</td><td>{{ pt.date || '—' }}</td>
+                                @for (tr of traits; track tr) {
+                                  <td [class.flash]="pt.flags.includes(tr)">{{ pt.traits[tr].percent }}%
+                                    <small class="muted">{{ bandLabel(pt.traits[tr].band) }}</small></td>
+                                }</tr>
+                            }</tbody></table></div>
+                          @if (tl.flash_points.length) {
+                            <h4 class="flash-head">{{ t().ig['flashTitle'] }}</h4>
+                            <div class="ig-table-wrap"><table class="ig-table see-table">
+                              <thead><tr><th>{{ t().ig['tlTrait'] }}</th><th>{{ t().ig['tlSpeech'] }}</th><th>{{ t().ig['tlDate'] }}</th>
+                                <th>{{ t().ig['tlBefore'] }}</th><th>{{ t().ig['tlAfter'] }}</th></tr></thead>
+                              <tbody>@for (f of tl.flash_points; track $index) {
+                                <tr class="flash"><td>{{ t().traitNames[f.trait] }} ({{ f.trait }})</td><td dir="auto">{{ f.title || t().wpUntitled }}</td>
+                                  <td>{{ f.date || '—' }}</td><td>{{ bandLabel(f.before) }} · {{ f.before_percent }}%</td>
+                                  <td>{{ bandLabel(f.after) }} · {{ f.after_percent }}%</td></tr>
+                              }</tbody></table></div>
+                            <p class="flash-note">⚑ {{ t().ig['flashTraitNote'] }} <span class="muted">{{ tl.rule }}</span></p>
+                          }
+                        }
+                      }
+                    }
+                  }
                   <div class="wp-files">
                     @for (sp of d.word_profile.speeches; track sp.id) {
                       <span class="wp-file" [title]="sp.title">{{ sp.title || t().wpUntitled }} · {{ sp.words.toLocaleString('en-US') }}
@@ -961,7 +997,7 @@
                       <div class="setting-grid">
                         @for (f of settingFields; track f) {
                           <label><span>{{ t().ig['f_' + f] }}</span>
-                            <input dir="auto" [placeholder]="t().ig['ph_' + f]" [value]="wpSetting()[f] || ''"
+                            <input dir="auto" [type]="f === 'date' ? 'date' : 'text'" [placeholder]="t().ig['ph_' + f]" [value]="wpSetting()[f] || ''"
                               (input)="setWpSetting(f, $any($event.target).value)"></label>
                         }
                       </div>
@@ -984,9 +1020,39 @@
                     @for (row of dzIgRows(); track row.key) {
                       <li><button class="link-btn" (click)="openIgGroup(row.key)">{{ igGroupName(row) }}</button>
                         <span [class]="igClass(row)">{{ igAssess(row) }}</span>
-                        <span class="muted">{{ t().ig['dzRefs'].replace('{n}', '' + row.references) }}@if (row.share != null) { · {{ (row.share * 100).toFixed(0) }}% }</span></li>
+                        <span class="wp-pct">{{ pct(row.share) }}</span></li>
                     }
                   </ul>
+                  <button class="ghost small see-data" (click)="igSeeData.set(!igSeeData())">
+                    {{ igSeeData() ? t().ig['hideData'] : t().ig['seeData'] }}</button>
+                  @if (igSeeData() && d.ingroup; as igp) {
+                    <div class="ig-table-wrap"><table class="ig-table see-table">
+                      <thead><tr><th>{{ t().ig['colGroup'] }}</th><th>{{ t().ig['tlExamined'] }}</th><th>{{ t().ig['tlOverTime'] }}</th></tr></thead>
+                      <tbody>
+                        @for (row of dzIgRows(); track row.key) {
+                          <tr><td>{{ igGroupName(row) }}</td><td>{{ row.references }}</td>
+                            <td>
+                              @for (g of igp.timeline?.groups ?? []; track g.key) {
+                                @if (g.key === row.key) {
+                                  @for (pt of g.points; track pt.id) {
+                                    <span class="tl-pt" [class.flash]="pt.flash" dir="auto">{{ pt.date || '—' }} · {{ pt.title || t().wpUntitled }}:
+                                      {{ pct(pt.share) }} ({{ t().ig['dzRefs'].replace('{n}', '' + pt.references) }})</span>
+                                  }
+                                }
+                              }
+                              @if (!row.references) { <span class="muted">{{ t().ig['tlNone'] }}</span> }
+                            </td></tr>
+                        }
+                      </tbody>
+                    </table></div>
+                    @if (igp.timeline?.flash_points?.length) {
+                      <p class="flash-note">⚑ {{ t().ig['flashIgNote'] }}</p>
+                      <ul class="flash-list">@for (f of igp.timeline!.flash_points; track $index) {
+                        <li dir="auto">{{ igGroupName(f) }} — {{ f.title || t().wpUntitled }} ({{ f.date || '—' }}): {{ pct(f.before) }} → {{ pct(f.after) }}</li>
+                      }</ul>
+                      <p class="pdf-note">{{ igp.timeline!.rule }}</p>
+                    }
+                  }
                 }
                 @if (d.ingroup && !d.ingroup.speeches) { <p class="muted">{{ t().ig['dzNoSpeeches'] }}</p> }
               </section>
