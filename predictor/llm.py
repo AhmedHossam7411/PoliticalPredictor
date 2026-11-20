@@ -402,6 +402,27 @@ def _retry_after(resp: httpx.Response) -> float:
         return 10.0
 
 
+# A request cut off by the network (the laptop slept, Wi-Fi dropped, Karnak restarting)
+# is sent again after these waits (seconds) before it counts as a failure. A timeout is
+# not retried: that is Karnak still working, and the time limit already covers it.
+_TRANSIENT = (httpx.ConnectError, httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError)
+RETRY_WAITS = (10, 30, 60)
+
+
+def _post_retrying(payload: dict, headers: dict, timeout: float, started: int) -> httpx.Response:
+    last: Exception | None = None
+    for wait in (0,) + RETRY_WAITS:
+        end = time.time() + wait
+        while time.time() < end:  # Stop AI still works while waiting
+            _check(started)
+            time.sleep(1)
+        try:
+            return _post(payload, headers, timeout, started)
+        except _TRANSIENT as exc:
+            last = exc
+    raise last  # type: ignore[misc]
+
+
 def chat_json(messages: list[dict], temperature: float, model: str | None = None,
               timeout: float | None = None, reasoning_effort: str | None = None,
               max_wait: float = 20.0) -> tuple[dict, str]:
@@ -434,7 +455,7 @@ def chat_json(messages: list[dict], temperature: float, model: str | None = None
             payload["reasoning_effort"] = reasoning_effort
         try:
             with _TURN:
-                resp = _post(payload, headers, timeout, started)
+                resp = _post_retrying(payload, headers, timeout, started)
             if resp.status_code == 429 and i == 0:
                 wait = _retry_after(resp)
             resp.raise_for_status()

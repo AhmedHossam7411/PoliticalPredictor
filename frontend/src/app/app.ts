@@ -630,6 +630,7 @@ export class App {
     this.aiTimer = setTimeout(() => {
       this.http.get<AiJob>(`${API}/context/ai/${id}`).subscribe({
         next: (j) => {
+          this.reconnecting.set(false);
           if (this.dictText() !== text || this.aiJob()?.id !== id) return;
           this.aiJob.set(j);
           this.mergeAi(j.decisions);
@@ -639,7 +640,10 @@ export class App {
             this.releaseAi();
           }
         },
-        error: (e) => { this.aiJob.update((j) => j && { ...j, status: 'failed', error: this.msg(e) }); this.releaseAi(); },
+        error: (e) => {
+          if (this.retryable(e)) { this.pollAi(id, text, this.backoff(wait)); return; }
+          this.aiJob.update((j) => j && { ...j, status: 'failed', error: this.msg(e) }); this.releaseAi();
+        },
       });
     }, wait);
   }
@@ -1656,11 +1660,12 @@ export class App {
       error: (e) => this.igAi.set({ status: 'failed', error: this.msg(e) }),
     });
   }
-  private pollIgAi(id: string, text: string) {
+  private pollIgAi(id: string, text: string, wait = 3000) {
     setTimeout(() => this.http.get<{ status: string; result: { decisions: IgDecision[]; checked: number } | null; error: string }>(
       `${API}/jobs/${id}`).subscribe({
       next: (j) => {
         if (this.dictText() !== text) return;
+        this.reconnecting.set(false);
         if (j.status === 'running') { this.pollIgAi(id, text); return; }
         if (j.status === 'done' && j.result) {
           this.decisions.set({ ...this.decisions(), groups: j.result.decisions });
@@ -1668,8 +1673,11 @@ export class App {
           this.rescore();
         } else this.igAi.set({ status: 'failed', error: j.error });
       },
-      error: (e) => this.igAi.set({ status: 'failed', error: this.msg(e) }),
-    }), 3000);
+      error: (e) => {
+        if (this.retryable(e)) { this.pollIgAi(id, text, this.backoff(wait)); return; }
+        this.igAi.set({ status: 'failed', error: this.msg(e) });
+      },
+    }), wait);
   }
 
   // In-group bias per affiliation, in a stakeholder's profile.
@@ -1771,6 +1779,7 @@ export class App {
       if (current !== id || this.submittedText() !== text) return;  // replaced by a newer run
       this.http.get<{ status: string; result: T | null; error: string; code: number; progress?: StakeProgress }>(`${API}/jobs/${id}`).subscribe({
         next: (j) => {
+          this.reconnecting.set(false);
           if (j.status === 'running') {
             if (which === 'stake') this.stakeProgress.set(j.progress ?? null);
             this.pollJob<T>(id, which, text); return;
@@ -1788,6 +1797,10 @@ export class App {
           if (failed) this.error.set(this.msg({ status: j.code, error: { detail: j.error } }));
         },
         error: (e) => {
+          // The server or the network is briefly out of reach (the laptop slept, Wi-Fi
+          // dropped): the job is still running there, so keep asking.
+          if (this.retryable(e)) { this.pollJob<T>(id, which, text, this.backoff(wait)); return; }
+          this.reconnecting.set(false);
           if (which === 'llm') { this.llmLoading.set(false); this.llmJob.set(''); }
           else { this.stakeLoading.set(false); this.stakeJob.set(''); }
           this.error.set(this.msg(e));
@@ -1795,6 +1808,17 @@ export class App {
       });
     }, wait);
   }
+
+  /** True while the page is waiting for the server to answer again. */
+  reconnecting = signal(false);
+  /** Network gone or server restarting (not "no such job"): worth asking again. */
+  private retryable(e: any): boolean {
+    const ok = e?.status === 0 || e?.status === 502 || e?.status === 503 || e?.status === 504;
+    this.reconnecting.set(ok);
+    return ok;
+  }
+  /** Wait a little longer each time, up to 20 seconds. */
+  private backoff(wait: number): number { return Math.min(20000, Math.max(3000, wait * 1.5)); }
 
   // --- Keep the analysis across page refreshes (this browser tab only) -------
   private static readonly STATE_KEY = 'cortex_state';
@@ -1810,9 +1834,16 @@ export class App {
       aiJob: this.aiJob(), aiQueued: this.aiQueued(),
       speaker: this.speaker(), analyzedSpeaker: this.analyzedSpeaker(),
       setting: this.setting(), analyzedSetting: this.analyzedSetting(),
+      // Work in progress: IGB answers picked but not submitted yet, and what is open.
+      igDraft: this.igDraft(), igOpen: this.igOpen(), igList: this.igList(), igAi: this.igAi(),
     };
     try { sessionStorage.setItem(App.STATE_KEY, JSON.stringify(state)); }
-    catch { /* too big or storage off: the analysis still works, it just won't survive a refresh */ }
+    catch {
+      // Too big (a long document with all its AI results): keep everything a person did,
+      // drop the AI results (they are fetched again from the server's jobs or re-run).
+      try { sessionStorage.setItem(App.STATE_KEY, JSON.stringify({ ...state, llm: null, stake: null })); }
+      catch { /* storage off: the analysis still works, it just won't survive a refresh */ }
+    }
   }
 
   /** After a refresh: put the analysis back and pick up whatever was still running. */
@@ -1835,6 +1866,8 @@ export class App {
     this.aiJob.set(st.aiJob ?? null); this.aiQueued.set(st.aiQueued ?? '');
     this.speaker.set(st.speaker ?? ''); this.analyzedSpeaker.set(st.analyzedSpeaker ?? '');
     this.setting.set(st.setting ?? {}); this.analyzedSetting.set(st.analyzedSetting ?? {});
+    this.igDraft.set(st.igDraft ?? {}); this.igOpen.set(st.igOpen ?? null); this.igList.set(st.igList ?? '');
+    this.igAi.set(st.igAi?.status === 'running' ? null : st.igAi ?? null);
     this.restoring = false;
     // The word scorer and the review are quick to redo; the decisions are kept.
     this.dictText.set(text); this.dictLoading.set(true);

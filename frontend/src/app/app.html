@@ -540,6 +540,7 @@
       </section>
     </div>
 
+    @if (reconnecting()) { <p class="fallback-note reconnect-note">⟳ {{ t().ig['reconnecting'] }}</p> }
     @if (dict(); as d) {
       <section class="card">
         <h2>{{ t().cx['entHeading'] }} @if (d.entity_summary?.length) { <span class="tag">{{ d.entity_summary!.length }}</span> }</h2>
